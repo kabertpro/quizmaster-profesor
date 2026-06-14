@@ -5,12 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QUIZ LEGENDS - Conquista el conocimiento</title>
     <link rel="stylesheet" href="styles.css">
+    
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        // jsPDF para reportes en PDF
-        import { jsPDF } from "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-        window.jsPDF = jsPDF;
+        import { jsPDF } from "https://esm.sh/jspdf@2.5.1"; 
+        
+        // Exponer de forma segura al entorno global para app.js
+        window.jspPDF = { jsPDF };
     </script>
 </head>
 <body>
@@ -247,8 +249,7 @@
                                 <small>Formato: Pregunta + Opciones con "R" al final de la correcta.</small>
                             </div>
 
-                            <div id="parsed-questions-preview" class="questions-preview">
-                                </div>
+                            <div id="parsed-questions-preview" class="questions-preview"></div>
 
                             <button type="submit" class="btn btn-block btn-neon" id="btn-save-quiz">GUARDAR CONFIGURACIÓN</button>
                         </form>
@@ -256,8 +257,7 @@
 
                     <div class="admin-card">
                         <h3>📦 Cuestionarios en Servidor</h3>
-                        <div id="admin-quizzes-list" class="admin-list">
-                            </div>
+                        <div id="admin-quizzes-list" class="admin-list"></div>
                         <hr class="divider">
                         <h3>⚠️ Mantenimiento Crítico</h3>
                         <button id="btn-reset-ranking-global" class="btn btn-danger btn-block">REINICIAR RANKING GLOBAL</button>
@@ -269,5 +269,6 @@
 
     <button id="secret-admin-trigger" class="secret-trigger">⚙️</button>
 
+    <script type="module" src="app.js"></script>
 </body>
 </html>
