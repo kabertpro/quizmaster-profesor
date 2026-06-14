@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QUIZ LEGENDS - Conquista el conocimiento</title>
+    <link rel="stylesheet" href="styles.css">
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        // jsPDF para reportes en PDF
+        import { jsPDF } from "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+        window.jsPDF = jsPDF;
+    </script>
+</head>
+<body>
+
+    <div id="orientation-blocker" class="screen-overlay">
+        <div class="blocker-content">
+            <div class="phone-icon">📱🔄</div>
+            <h2>MODO INCORRECTO</h2>
+            <p>Por favor utiliza Quiz Legends en modo vertical.</p>
+        </div>
+    </div>
+
+    <div id="splash-screen" class="view active">
+        <div class="particles" id="particles-container"></div>
+        <div class="splash-content">
+            <h1 class="logo-title glitch">QUIZ LEGENDS</h1>
+            <p class="subtitle">Conquista el conocimiento. Rompe récords. Conviértete en leyenda.</p>
+            <div class="author">Autor: Kabert Studio - LMKE</div>
+            <div id="countdown-box" class="countdown-text"></div>
+        </div>
+    </div>
+
+    <main id="main-container" class="hidden">
+        
+        <header class="navbar">
+            <div class="nav-logo" id="nav-logo-btn">🎮 QUIZ LEGENDS</div>
+            <nav class="nav-menu">
+                <button id="nav-ranking-btn" class="btn btn-nav">🏆 Ranking</button>
+                <button id="nav-login-btn" class="btn btn-primary">Iniciar Sesión</button>
+                <button id="nav-register-btn" class="btn btn-secondary">Registrarse</button>
+                <span id="user-tag" class="user-tag hidden"></span>
+                <button id="nav-logout-btn" class="btn btn-danger hidden">Salir</button>
+            </nav>
+        </header>
+
+        <section id="view-ranking" class="view-panel active">
+            <div class="panel-header">
+                <h2>🏆 TOP 20 LEYENDAS</h2>
+                <p>Los mejores puntajes globales de la plataforma</p>
+            </div>
+            <div class="table-container">
+                <table class="gamer-table">
+                    <thead>
+                        <tr>
+                            <th>Pos</th>
+                            <th>Estudiante</th>
+                            <th>Curso</th>
+                            <th>Cuestionario</th>
+                            <th>Puntaje</th>
+                            <th>Tiempo</th>
+                            <th>Intentos</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ranking-tbody">
+                        </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="view-register" class="view-panel hidden">
+            <div class="auth-box">
+                <h2>📝 CREAR CUENTA</h2>
+                <form id="register-form">
+                    <div class="form-group">
+                        <label>Nombre Completo</label>
+                        <input type="text" id="reg-nombre" required placeholder="Ej. Juan Pérez">
+                    </div>
+                    <div class="form-group">
+                        <label>Curso</label>
+                        <select id="reg-curso" required>
+                            <optgroup label="PRIMARIA">
+                                <option value="1ro Primaria">1ro Primaria</option>
+                                <option value="2do Primaria">2do Primaria</option>
+                                <option value="3ro Primaria">3ro Primaria</option>
+                                <option value="4to Primaria">4to Primaria</option>
+                                <option value="5to Primaria">5to Primaria</option>
+                                <option value="6to Primaria">6to Primaria</option>
+                            </optgroup>
+                            <optgroup label="SECUNDARIA">
+                                <option value="1ro Secundaria">1ro Secundaria</option>
+                                <option value="2do Secundaria">2do Secundaria</option>
+                                <option value="3ro Secundaria">3ro Secundaria</option>
+                                <option value="4to Secundaria">4to Secundaria</option>
+                                <option value="5to Secundaria">5to Secundaria</option>
+                                <option value="6to Secundaria">6to Secundaria</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Usuario</label>
+                        <input type="text" id="reg-user" required placeholder="username123">
+                    </div>
+                    <div class="form-group">
+                        <label>Contraseña</label>
+                        <input type="password" id="reg-pass" required placeholder="******">
+                    </div>
+                    <button type="submit" class="btn btn-block btn-neon">REGISTRARSE</button>
+                </form>
+            </div>
+        </section>
+
+        <section id="view-login" class="view-panel hidden">
+            <div class="auth-box">
+                <h2>🔑 INICIAR SESIÓN</h2>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label>Usuario</label>
+                        <input type="text" id="login-user" required placeholder="Tu usuario">
+                    </div>
+                    <div class="form-group">
+                        <label>Contraseña</label>
+                        <input type="password" id="login-pass" required placeholder="******">
+                    </div>
+                    <button type="submit" class="btn btn-block btn-neon">INGRESAR AL SISTEMA</button>
+                </form>
+            </div>
+        </section>
+
+        <section id="view-student" class="view-panel hidden">
+            <div class="student-layout">
+                <aside class="profile-card">
+                    <div class="profile-header">
+                        <div class="avatar">👤</div>
+                        <h3 id="student-profile-name">Estudiante</h3>
+                        <span id="student-profile-course" class="badge">Curso</span>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-item"><span class="stat-val" id="stat-completed">0</span><span class="stat-lbl">Quizzes</span></div>
+                        <div class="stat-item"><span class="stat-val" id="stat-points">0</span><span class="stat-lbl">Pts Total</span></div>
+                    </div>
+                    <h4>Historial de Intentos</h4>
+                    <ul id="student-history-list" class="history-list">
+                        </ul>
+                </aside>
+
+                <div class="quizzes-section">
+                    <h2>🎯 TUS DESAFÍOS DISPONIBLES</h2>
+                    <div id="quizzes-grid" class="quizzes-grid">
+                        </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="view-quiz-play" class="view-panel hidden">
+            <div class="quiz-container">
+                <header class="quiz-header">
+                    <div class="quiz-info-meta">
+                        <h2 id="play-quiz-title">Cuestionario</h2>
+                        <span id="play-quiz-progress">Pregunta 0/0</span>
+                    </div>
+                    <div class="quiz-timer" id="quiz-chronometer">00:00:00</div>
+                    <button id="btn-force-exit-fullscreen" class="btn btn-danger btn-sm">SALIR DE PANTALLA COMPLETA</button>
+                </header>
+
+                <div class="progress-bar-container">
+                    <div id="quiz-progress-fill" class="progress-bar-fill"></div>
+                </div>
+
+                <div class="question-card" id="question-card">
+                    <h3 id="play-question-text" class="question-text">¿Cargando pregunta?</h3>
+                    <div id="play-options-container" class="options-grid">
+                        </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="view-results" class="view-panel hidden">
+            <div class="results-box text-center">
+                <div id="confetti-wrapper"></div>
+                <h1 class="text-gold final-title">¡EVALUACIÓN CONCLUIDA!</h1>
+                <p class="final-subtitle" id="result-quiz-name">Nombre del Cuestionario</p>
+                
+                <div class="results-summary">
+                    <div class="res-card"><span class="res-label">Puntaje Obtenido</span><span class="res-value text-neon" id="res-score">0 / 0</span></div>
+                    <div class="res-card"><span class="res-label">Porcentaje</span><span class="res-value text-success" id="res-percent">0%</span></div>
+                    <div class="res-card"><span class="res-label">Tiempo Empleado</span><span class="res-value" id="res-time">00:00</span></div>
+                    <div class="res-card"><span class="res-label">Bono de Velocidad</span><span class="res-value text-gold" id="res-bonus">+0 Pts</span></div>
+                </div>
+
+                <div class="results-actions">
+                    <button id="btn-download-pdf" class="btn btn-gold btn-lg">📄 Descargar Certificado PDF</button>
+                    <button id="btn-result-close" class="btn btn-primary btn-lg">Volver al Panel</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="view-admin" class="view-panel hidden">
+            <div class="admin-container">
+                <header class="admin-header">
+                    <h2>⚙️ CONTROL DE COMANDO ADMINISTRATIVO</h2>
+                    <button id="btn-admin-close" class="btn btn-secondary">Cerrar Admin</button>
+                </header>
+
+                <div class="admin-grid">
+                    <div class="admin-card">
+                        <h3>🛠️ Crear / Editar Cuestionario</h3>
+                        <form id="quiz-form">
+                            <input type="hidden" id="quiz-id">
+                            <div class="form-group">
+                                <label>Nombre del Cuestionario</label>
+                                <input type="text" id="quiz-name" required placeholder="Ej. Fauna del Altiplano">
+                            </div>
+                            <div class="form-group">
+                                <label>Curso Destinatario</label>
+                                <select id="quiz-curso" required>
+                                    <option value="1ro Primaria">1ro Primaria</option>
+                                    <option value="2do Primaria">2do Primaria</option>
+                                    <option value="3ro Primaria">3ro Primaria</option>
+                                    <option value="4to Primaria">4to Primaria</option>
+                                    <option value="5to Primaria">5to Primaria</option>
+                                    <option value="6to Primaria">6to Primaria</option>
+                                    <option value="1ro Secundaria">1ro Secundaria</option>
+                                    <option value="2do Secundaria">2do Secundaria</option>
+                                    <option value="3ro Secundaria">3ro Secundaria</option>
+                                    <option value="4to Secundaria">4to Secundaria</option>
+                                    <option value="5to Secundaria">5to Secundaria</option>
+                                    <option value="6to Secundaria">6to Secundaria</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Puntaje Máximo Base</label>
+                                    <input type="number" id="quiz-max-score" required value="45">
+                                </div>
+                                <div class="form-group">
+                                    <label>Tiempo Ideal (Minutos)</label>
+                                    <input type="number" id="quiz-ideal-time" required value="10">
+                                </div>
+                            </div>
+
+                            <div class="form-group txt-upload-box">
+                                <label>📂 Cargar Preguntas vía Archivo .TXT</label>
+                                <input type="file" id="quiz-file-txt" accept=".txt">
+                                <small>Formato: Pregunta + Opciones con "R" al final de la correcta.</small>
+                            </div>
+
+                            <div id="parsed-questions-preview" class="questions-preview">
+                                </div>
+
+                            <button type="submit" class="btn btn-block btn-neon" id="btn-save-quiz">GUARDAR CONFIGURACIÓN</button>
+                        </form>
+                    </div>
+
+                    <div class="admin-card">
+                        <h3>📦 Cuestionarios en Servidor</h3>
+                        <div id="admin-quizzes-list" class="admin-list">
+                            </div>
+                        <hr class="divider">
+                        <h3>⚠️ Mantenimiento Crítico</h3>
+                        <button id="btn-reset-ranking-global" class="btn btn-danger btn-block">REINICIAR RANKING GLOBAL</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <button id="secret-admin-trigger" class="secret-trigger">⚙️</button>
+
+</body>
+</html>
