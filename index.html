@@ -160,28 +160,37 @@
             </div>
         </section>
 
-        <section id="view-quiz-play" class="view-panel hidden">
-            <div class="quiz-container">
-                <header class="quiz-header">
-                    <div class="quiz-info-meta">
-                        <h2 id="play-quiz-title">Cuestionario</h2>
-                        <span id="play-quiz-progress">Pregunta 0/0</span>
-                    </div>
-                    <div class="quiz-timer" id="quiz-chronometer">00:00:00</div>
-                    <button id="btn-force-exit-fullscreen" class="btn btn-danger btn-sm">SALIR DE PANTALLA COMPLETA</button>
-                </header>
-
-                <div class="progress-bar-container">
-                    <div id="quiz-progress-fill" class="progress-bar-fill"></div>
-                </div>
-
-                <div class="question-card" id="question-card">
-                    <h3 id="play-question-text" class="question-text">¿Cargando pregunta?</h3>
-                    <div id="play-options-container" class="options-grid">
-                        </div>
-                </div>
+<!-- VISTA: MODO EVALUACIÓN (OPTIMIZADA PARA MÓVILES Y PANTALLA COMPLETA) -->
+<section id="view-quiz-play" class="view-panel hidden">
+    <div class="quiz-container">
+        <header class="quiz-header">
+            <div class="quiz-info-meta">
+                <h2 id="play-quiz-title">Cuestionario</h2>
+                <span id="play-quiz-progress" class="badge-gamer">Pregunta 0/0</span>
             </div>
-        </section>
+            <!-- Cronómetro gigante y visible para el estudiante -->
+            <div class="quiz-timer-wrapper">
+                <span class="timer-icon">⏱️</span>
+                <div class="quiz-timer" id="quiz-chronometer">00:00</div>
+            </div>
+        </header>
+
+        <div class="progress-bar-container">
+            <div id="quiz-progress-fill" class="progress-bar-fill"></div>
+        </div>
+
+        <div class="question-card" id="question-card">
+            <h3 id="play-question-text" class="question-text">¿Cargando pregunta?</h3>
+            <div id="play-options-container" class="options-grid">
+                <!-- Opciones interactivas -->
+            </div>
+        </div>
+        
+        <div class="quiz-footer-actions">
+            <button id="btn-force-exit-fullscreen" class="btn btn-danger btn-sm">🚪 Salir de Pantalla Completa</button>
+        </div>
+    </div>
+</section>
 
         <section id="view-results" class="view-panel hidden">
             <div class="results-box text-center">
@@ -203,72 +212,84 @@
             </div>
         </section>
 
-        <section id="view-admin" class="view-panel hidden">
-            <div class="admin-container">
-                <header class="admin-header">
-                    <h2>⚙️ CONTROL DE COMANDO ADMINISTRATIVO</h2>
-                    <button id="btn-admin-close" class="btn btn-secondary">Cerrar Admin</button>
-                </header>
+		-- VISTA: PANEL ADMINISTRADOR (NUEVO EDITOR INTERACTIVO) --
+		<section id="view-admin" class="view-panel hidden">
+			<div class="admin-container">
+				<header class="admin-header">
+					<h2>⚙️ CONTROL DE COMANDO ADMINISTRATIVO</h2>
+					<button id="btn-admin-close" class="btn btn-secondary">Volver</button>
+				</header>
 
-                <div class="admin-grid">
-                    <div class="admin-card">
-                        <h3>🛠️ Crear / Editar Cuestionario</h3>
-                        <form id="quiz-form">
-                            <input type="hidden" id="quiz-id">
-                            <div class="form-group">
-                                <label>Nombre del Cuestionario</label>
-                                <input type="text" id="quiz-name" required placeholder="Ej. Fauna del Altiplano">
-                            </div>
-                            <div class="form-group">
-                                <label>Curso Destinatario</label>
-                                <select id="quiz-curso" required>
-                                    <option value="1ro Primaria">1ro Primaria</option>
-                                    <option value="2do Primaria">2do Primaria</option>
-                                    <option value="3ro Primaria">3ro Primaria</option>
-                                    <option value="4to Primaria">4to Primaria</option>
-                                    <option value="5to Primaria">5to Primaria</option>
-                                    <option value="6to Primaria">6to Primaria</option>
-                                    <option value="1ro Secundaria">1ro Secundaria</option>
-                                    <option value="2do Secundaria">2do Secundaria</option>
-                                    <option value="3ro Secundaria">3ro Secundaria</option>
-                                    <option value="4to Secundaria">4to Secundaria</option>
-                                    <option value="5to Secundaria">5to Secundaria</option>
-                                    <option value="6to Secundaria">6to Secundaria</option>
-                                </select>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Puntaje Máximo Base</label>
-                                    <input type="number" id="quiz-max-score" required value="45">
-                                </div>
-                                <div class="form-group">
-                                    <label>Tiempo Ideal (Minutos)</label>
-                                    <input type="number" id="quiz-ideal-time" required value="10">
-                                </div>
-                            </div>
+				<div class="admin-grid">
+					<!-- Formulario de Configuración Base -->
+					<div class="admin-card">
+						<h3>🛠️ Configuración del Cuestionario</h3>
+						<form id="quiz-form">
+							<input type="hidden" id="quiz-id">
+							<div class="form-group">
+								<label>Nombre del Cuestionario</label>
+								<input type="text" id="quiz-name" required placeholder="Ej. Instrumentos Autóctonos">
+							</div>
+							<div class="form-group">
+								<label>Curso Destinatario</label>
+								<select id="quiz-curso" required>
+									<option value="1ro Primaria">1ro Primaria</option>
+									<option value="2do Primaria">2do Primaria</option>
+									<option value="3ro Primaria">3ro Primaria</option>
+									<option value="4to Primaria">4to Primaria</option>
+									<option value="5to Primaria">5to Primaria</option>
+									<option value="6to Primaria">6to Primaria</option>
+									<option value="1ro Secundaria">1ro Secundaria</option>
+									<option value="2do Secundaria">2do Secundaria</option>
+									<option value="3ro Secundaria">3ro Secundaria</option>
+									<option value="4to Secundaria">4to Secundaria</option>
+									<option value="5to Secundaria">5to Secundaria</option>
+									<option value="6to Secundaria">6to Secundaria</option>
+								</select>
+							</div>
+							<div class="form-row">
+								<div class="form-group">
+									<label>Puntaje Base</label>
+									<input type="number" id="quiz-max-score" required value="45">
+								</div>
+								<div class="form-group">
+									<label>Tiempo Ideal (Minutos)</label>
+									<input type="number" id="quiz-ideal-time" required value="10">
+								</div>
+							</div>
 
-                            <div class="form-group txt-upload-box">
-                                <label>📂 Cargar Preguntas vía Archivo .TXT</label>
-                                <input type="file" id="quiz-file-txt" accept=".txt">
-                                <small>Formato: Pregunta + Opciones con "R" al final de la correcta.</small>
-                            </div>
+							<!-- MÓDULO DE IMPORTACIÓN Y EDICIÓN EN VIVO -->
+							<div class="form-group txt-upload-box">
+								<label>📂 Cargar Preguntas (.TXT)</label>
+								<input type="file" id="quiz-file-txt" accept=".txt">
+							</div>
 
-                            <div id="parsed-questions-preview" class="questions-preview"></div>
+							<div class="editor-header">
+								<span id="detected-count-badge" class="badge-count">Preguntas detectadas: 0</span>
+								<button type="button" id="btn-clear-editor" class="btn btn-sm btn-danger">🗑️ Limpiar Todo</button>
+							</div>
 
-                            <button type="submit" class="btn btn-block btn-neon" id="btn-save-quiz">GUARDAR CONFIGURACIÓN</button>
-                        </form>
-                    </div>
+							<!-- Editor de texto en vivo -->
+							<div class="form-group">
+								<label>📝 Editor de Texto Estructurado (Puedes modificar aquí directamente)</label>
+								<textarea id="quiz-raw-editor" rows="12" placeholder="¿Pregunta de ejemplo?&#10;A) Opción uno&#10;B) Opción dos R&#10;C) Opción tres"></textarea>
+							</div>
 
-                    <div class="admin-card">
-                        <h3>📦 Cuestionarios en Servidor</h3>
-                        <div id="admin-quizzes-list" class="admin-list"></div>
-                        <hr class="divider">
-                        <h3>⚠️ Mantenimiento Crítico</h3>
-                        <button id="btn-reset-ranking-global" class="btn btn-danger btn-block">REINICIAR RANKING GLOBAL</button>
-                    </div>
-                </div>
-            </div>
-        </section>
+							<button type="submit" class="btn btn-block btn-neon" id="btn-save-quiz">SINCRONIZAR CON SUPABASE</button>
+						</form>
+					</div>
+
+					<!-- Cuestionarios Activos -->
+					<div class="admin-card">
+						<h3>📦 Cuestionarios en Servidor</h3>
+						<div id="admin-quizzes-list" class="admin-list"></div>
+						<hr class="divider">
+						<h3>⚠️ Mantenimiento Crítico</h3>
+						<button id="btn-reset-ranking-global" class="btn btn-danger btn-block">REINICIAR RANKING GLOBAL</button>
+					</div>
+				</div>
+			</div>
+		</section>
     </main>
 
     <button id="secret-admin-trigger" class="secret-trigger">⚙️</button>

@@ -63,7 +63,10 @@ let userAnswers = [];
 let chronometerInterval = null;
 let startTime = null;
 let elapsedTimeInSeconds = 0;
-let adminParsedQuestions = [];
+
+// Referencias a elementos del DOM del Editor
+const rawEditor = document.getElementById('quiz-raw-editor');
+const countBadge = document.getElementById('detected-count-badge');
 
 function switchView(panelId) {
     document.querySelectorAll('.view-panel').forEach(panel => {
@@ -107,7 +110,7 @@ function initSplashScreen() {
 }
 
 // ==========================================================================
-// AUTENTICACIÓN PERSONALIZADA (SUPABASE RPC / TABLAS)
+// AUTENTICACIÓN PERSONALIZADA (TABLAS DE SUPABASE)
 // ==========================================================================
 document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -117,8 +120,7 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
     const usuario = document.getElementById('reg-user').value.trim().toLowerCase();
     const password = document.getElementById('reg-pass').value;
 
-    // Verificar si el usuario ya existe
-    const { data: existingUser, error: checkErr } = await supabase
+    const { data: existingUser } = await supabase
         .from('usuarios')
         .select('usuario')
         .eq('usuario', usuario)
@@ -130,7 +132,6 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
         return;
     }
 
-    // Insertar en Supabase
     const { error: insErr } = await supabase
         .from('usuarios')
         .insert([{ usuario, nombre_completo: nombreCompleto, curso, password }]);
@@ -194,29 +195,36 @@ document.getElementById('nav-logout-btn').addEventListener('click', () => {
 });
 
 // ==========================================================================
-// ARCHIVOS TXT PARSER
+// MÓDULO TEXT PARSER & EDITOR INTERACTIVO DE PREGUNTAS
 // ==========================================================================
+if (rawEditor) {
+    rawEditor.addEventListener('input', updateParsedCount);
+}
+
 document.getElementById('quiz-file-txt').addEventListener('change', function(e) {
     const file = e.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = function(evt) {
-        parseTXTData(evt.target.result);
+        rawEditor.value = evt.target.result;
+        updateParsedCount();
     };
     reader.readAsText(file, "UTF-8");
 });
 
-function parseTXTData(text) {
-    adminParsedQuestions = [];
+function parseEditorContent() {
+    if (!rawEditor) return [];
+    const text = rawEditor.value;
     const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const parsedQuestions = [];
     let currentQuestion = null;
 
     lines.forEach(line => {
-        if (line.startsWith('¿') || !line.match(/^[A-D]\)/)) {
-            if (currentQuestion) adminParsedQuestions.push(currentQuestion);
+        if (line.startsWith('¿') || !line.match(/^[A-D]\)/i)) {
+            if (currentQuestion) parsedQuestions.push(currentQuestion);
             currentQuestion = { pregunta: line, opciones: [], correcta: 0 };
-        } else if (currentQuestion && line.match(/^[A-D]\)/)) {
+        } else if (currentQuestion && line.match(/^[A-D]\)/i)) {
             const isCorrect = line.toUpperCase().endsWith('R');
             let cleanOption = line.substring(2).trim();
             if (isCorrect) {
@@ -226,22 +234,56 @@ function parseTXTData(text) {
             currentQuestion.opciones.push(cleanOption);
         }
     });
-    if (currentQuestion) adminParsedQuestions.push(currentQuestion);
+    if (currentQuestion) parsedQuestions.push(currentQuestion);
+    return parsedQuestions;
+}
 
-    const previewContainer = document.getElementById('parsed-questions-preview');
-    previewContainer.innerHTML = `<h4>Preguntas Procesadas (${adminParsedQuestions.length})</h4>`;
-    adminParsedQuestions.forEach((q, idx) => {
-        previewContainer.innerHTML += `<p><b>${idx+1}. ${q.pregunta}</b></p>`;
+function updateParsedCount() {
+    const questions = parseEditorContent();
+    if (countBadge) {
+        countBadge.innerText = `Preguntas detectadas: ${questions.length}`;
+    }
+}
+
+document.getElementById('btn-clear-editor').addEventListener('click', () => {
+    AudioEngine.error();
+    if(confirm("¿Vaciar el editor actual? Perderás los cambios no guardados.")) {
+        rawEditor.value = '';
+        document.getElementById('quiz-file-txt').value = '';
+        updateParsedCount();
+    }
+});
+
+function injectQuizToEditor(quiz) {
+    document.getElementById('quiz-id').value = quiz.id;
+    document.getElementById('quiz-name').value = quiz.nombre;
+    document.getElementById('quiz-curso').value = quiz.curso_destinatario;
+    document.getElementById('quiz-max-score').value = quiz.puntaje_maximo;
+    document.getElementById('quiz-ideal-time').value = quiz.tiempo_ideal;
+    
+    let rawText = "";
+    quiz.preguntas.forEach(q => {
+        rawText += `${q.pregunta}\n`;
+        q.opciones.forEach((op, i) => {
+            rawText += `${String.fromCharCode(65 + i)}) ${op}${i === q.correcta ? ' R' : ''}\n`;
+        });
+        rawText += "\n";
     });
+    
+    rawEditor.value = rawText.trim();
+    updateParsedCount();
 }
 
 document.getElementById('quiz-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     AudioEngine.btn();
-    if (adminParsedQuestions.length === 0) {
-        alert("❌ Carga un archivo estructurado .TXT primero.");
+    
+    const finalQuestions = parseEditorContent();
+    if (finalQuestions.length === 0) {
+        alert("❌ El editor está vacío o el formato .TXT no es válido.");
         return;
     }
+
     const id = document.getElementById('quiz-id').value || 'quiz_' + Date.now();
     const nombre = document.getElementById('quiz-name').value.trim();
     const cursoDestinatario = document.getElementById('quiz-curso').value;
@@ -251,23 +293,19 @@ document.getElementById('quiz-form').addEventListener('submit', async (e) => {
     const { error } = await supabase
         .from('cuestionarios')
         .upsert([{ 
-            id, 
-            nombre, 
-            curso_destinatario: cursoDestinatario, 
-            puntaje_maximo: puntajeMaximo, 
-            tiempo_ideal: tiempoIdeal, 
-            preguntas: adminParsedQuestions 
+            id, nombre, curso_destinatario: cursoDestinatario, 
+            puntaje_maximo: puntajeMaximo, tiempo_ideal: tiempoIdeal, preguntas: finalQuestions 
         }]);
 
     if (error) {
-        alert("Error al sincronizar el cuestionario.");
+        alert("Error al guardar en Supabase.");
         return;
     }
 
-    alert("💾 Cuestionario sincronizado con Supabase.");
+    alert("💾 ¡Cuestionario guardado y sincronizado!");
     document.getElementById('quiz-form').reset();
-    document.getElementById('parsed-questions-preview').innerHTML = '';
-    adminParsedQuestions = [];
+    rawEditor.value = '';
+    updateParsedCount();
     loadAdminQuizzes();
 });
 
@@ -279,7 +317,6 @@ async function loadStudentDashboard() {
     document.getElementById('student-profile-name').innerText = currentUser.nombreCompleto;
     document.getElementById('student-profile-course').innerText = currentUser.curso;
 
-    // Cargar historial de intentos
     const { data: historyData } = await supabase
         .from('records')
         .select('*')
@@ -304,7 +341,6 @@ async function loadStudentDashboard() {
     document.getElementById('stat-completed').innerText = completedCount;
     document.getElementById('stat-points').innerText = totalPoints;
 
-    // Cargar cuestionarios del curso asignado
     const { data: quizzesData } = await supabase
         .from('cuestionarios')
         .select('*')
@@ -314,7 +350,7 @@ async function loadStudentDashboard() {
     grid.innerHTML = '';
 
     if (!quizzesData || quizzesData.length === 0) {
-        grid.innerHTML = '<p class="text-center">No tienes cuestionarios activos para tu curso.</p>';
+        grid.innerHTML = '<p class="text-center">No tienes cuestionarios activos asignados.</p>';
         return;
     }
 
@@ -326,10 +362,10 @@ async function loadStudentDashboard() {
             <div>
                 <h3>🎮 ${quiz.nombre}</h3>
                 <p class="quiz-meta">⏱️ Ideal: ${quiz.tiempo_ideal} min | 💯 Base: ${quiz.puntaje_maximo} Pts</p>
-                <p style="font-size:0.85rem; color:${intentosPrevios >= 3 ? 'var(--error-red)' : 'var(--neon-blue)'}">Intentos: ${intentosPrevios} / 3</p>
+                <p style="font-size:0.85rem; color:${intentosPrevios >= 3 ? 'var(--error-red)' : 'var(--neon-blue)'}">Intentos realizados: ${intentosPrevios} / 3</p>
             </div>
             <button class="btn ${intentosPrevios >= 3 ? 'btn-secondary' : 'btn-primary'}" style="margin-top:15px;" ${intentosPrevios >= 3 ? 'disabled' : ''} id="btn-start-${quiz.id}">
-                ${intentosPrevios >= 3 ? '💥 BLOQUEADO' : '⚡ INICIAR'}
+                ${intentosPrevios >= 3 ? '💥 BLOQUEADO' : '⚡ INICIAR EVALUACIÓN'}
             </button>
         `;
         grid.appendChild(card);
@@ -340,7 +376,7 @@ async function loadStudentDashboard() {
 }
 
 // ==========================================================================
-// SIMULADOR: EVALUACIÓN ACTIVA
+// SIMULADOR DE EVALUACIÓN (CRONÓMETRO Y PANTALLA COMPLETA)
 // ==========================================================================
 function startQuizEvaluation(quiz, nroIntento) {
     AudioEngine.achievement();
@@ -354,7 +390,11 @@ function startQuizEvaluation(quiz, nroIntento) {
     document.getElementById('play-quiz-title').innerText = currentQuiz.nombre;
     
     const docEl = document.documentElement;
-    if (docEl.requestFullscreen) docEl.requestFullscreen();
+    if (docEl.requestFullscreen) {
+        docEl.requestFullscreen().catch(() => {});
+    } else if (docEl.webkitRequestFullscreen) {
+        docEl.webkitRequestFullscreen();
+    }
 
     elapsedTimeInSeconds = 0;
     startTime = Date.now();
@@ -366,12 +406,22 @@ function runChronometer() {
     clearInterval(chronometerInterval);
     chronometerInterval = setInterval(() => {
         elapsedTimeInSeconds = Math.floor((Date.now() - startTime) / 1000);
-        const hrs = Math.floor(elapsedTimeInSeconds / 3600).toString().padStart(2, '0');
-        const mins = Math.floor((elapsedTimeInSeconds % 3600) / 60).toString().padStart(2, '0');
+        const mins = Math.floor(elapsedTimeInSeconds / 60).toString().padStart(2, '0');
         const secs = (elapsedTimeInSeconds % 60).toString().padStart(2, '0');
-        document.getElementById('quiz-chronometer').innerText = `${hrs}:${mins}:${secs}`;
+        document.getElementById('quiz-chronometer').innerText = `${mins}:${secs}`;
     }, 1000);
 }
+
+document.getElementById('btn-force-exit-fullscreen').addEventListener('click', () => {
+    AudioEngine.btn();
+    if (document.exitFullscreen) {
+        document.exitFullscreen().catch(()=>{});
+    } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+    }
+    clearInterval(chronometerInterval);
+    loadStudentDashboard();
+});
 
 function renderCurrentQuestion() {
     if (currentQuestionIndex >= quizQuestions.length) {
@@ -431,10 +481,8 @@ async function finishQuizEvaluation() {
 
     const puntajeFinalTotal = Math.round(((correctCount / quizQuestions.length) * currentQuiz.puntaje_maximo) + bonificacion);
     const stringTiempo = `${Math.floor(elapsedTimeInSeconds / 60).toString().padStart(2, '0')}:${(elapsedTimeInSeconds % 60).toString().padStart(2, '0')}`;
-
     const recordId = `${currentUser.usuario}_${currentQuiz.id}`;
 
-    // Obtener si ya existe un registro
     const { data: currentRecord } = await supabase
         .from('records')
         .select('*')
@@ -472,7 +520,7 @@ async function finishQuizEvaluation() {
 
     window.currentEvaluationReport = {
         estudiante: currentUser.nombreCompleto, curso: currentUser.curso, cuestionario: currentQuiz.nombre,
-        puntaje: puntajeFinalTotal, maximoBase: currentQuiz.puntaje_maximo, porcentaje, tiempo: stringTiempo, intento: payload.cantidad_intentos, fecha: new Date().toLocaleDateString()
+        puntaje: puntajeFinalTotal, maximoBase: currentQuiz.puntaje_maximo, porcentaje, tiempo: stringTiempo, intento: payload.cantidad_intentos
     };
 
     document.getElementById('res-score').innerText = `${puntajeFinalTotal} / ${currentQuiz.puntaje_maximo}`;
@@ -545,7 +593,7 @@ document.getElementById('btn-download-pdf').addEventListener('click', () => {
 document.getElementById('btn-result-close').addEventListener('click', () => { AudioEngine.btn(); loadStudentDashboard(); });
 
 // ==========================================================================
-// RANKING GLOBAL PÚBLICO (MIGRADO A POSTGRES ORDER BY)
+// RANKING GLOBAL PÚBLICO
 // ==========================================================================
 async function loadRankingGlobal() {
     try {
@@ -569,10 +617,10 @@ async function loadRankingGlobal() {
             tr.innerHTML = `<td><b>${idx + 1}</b></td><td>${row.nombre_completo}</td><td>${row.curso}</td><td>${row.cuestionario_nombre}</td><td>${row.mejor_puntaje} Pts</td><td>${row.mejor_tiempo}</td><td>${row.cantidad_intentos} / 3</td>`;
             tbody.appendChild(tr);
         });
-    } catch (err) { console.error(err); }
+    } catch (err) {}
 }
 
-// NAVEGACIÓN
+// NAVEGACIÓN GENERAL
 document.getElementById('nav-logo-btn').addEventListener('click', () => { AudioEngine.btn(); if(currentUser) loadStudentDashboard(); else switchView('view-ranking'); });
 document.getElementById('nav-ranking-btn').addEventListener('click', () => { AudioEngine.btn(); switchView('view-ranking'); loadRankingGlobal(); });
 document.getElementById('nav-login-btn').addEventListener('click', () => { AudioEngine.btn(); switchView('view-login'); });
@@ -601,20 +649,15 @@ async function loadAdminQuizzes() {
         quizzes.forEach(quiz => {
             const div = document.createElement('div');
             div.classList.add('admin-list-item');
-            div.innerHTML = `<div><b>${quiz.nombre}</b> [${quiz.curso_destinatario}]</div><div class="admin-list-actions"><button class="btn btn-sm btn-secondary" id="edit-${quiz.id}">📝</button><button class="btn btn-sm btn-danger" id="del-${quiz.id}">🗑 vaporizar</button></div>`;
+            div.innerHTML = `<div><b>${quiz.nombre}</b> [${quiz.curso_destinatario}]</div><div class="admin-list-actions"><button class="btn btn-sm btn-secondary" id="edit-${quiz.id}">编</button><button class="btn btn-sm btn-danger" id="del-${quiz.id}">🗑</button></div>`;
             container.appendChild(div);
 
             document.getElementById(`edit-${quiz.id}`).addEventListener('click', () => {
-                document.getElementById('quiz-id').value = quiz.id;
-                document.getElementById('quiz-name').value = quiz.nombre;
-                document.getElementById('quiz-curso').value = quiz.curso_destinatario;
-                document.getElementById('quiz-max-score').value = quiz.puntaje_maximo;
-                document.getElementById('quiz-ideal-time').value = quiz.tiempo_ideal;
-                adminParsedQuestions = quiz.preguntas;
+                injectQuizToEditor(quiz);
             });
             
             document.getElementById(`del-${quiz.id}`).addEventListener('click', async () => {
-                if(confirm("¿Eliminar cuestionario?")) { 
+                if(confirm("¿Eliminar este cuestionario permanentemente?")) { 
                     await supabase.from('cuestionarios').delete().eq('id', quiz.id); 
                     loadAdminQuizzes(); 
                 }
@@ -626,7 +669,6 @@ async function loadAdminQuizzes() {
 document.getElementById('btn-reset-ranking-global').addEventListener('click', async () => {
     AudioEngine.error();
     if (confirm("⚠️ ¿Deseas reiniciar a cero el ranking global de PostgreSQL?")) {
-        // En Supabase eliminamos todos los registros con un filtro amplio
         await supabase.from('records').delete().neq('id', 'void');
         alert("Ranking purgado.");
         loadRankingGlobal();
@@ -634,9 +676,7 @@ document.getElementById('btn-reset-ranking-global').addEventListener('click', as
 });
 
 window.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
-        try { initSplashScreen(); } catch(e) {}
-    }, 60);
+    setTimeout(() => { try { initSplashScreen(); } catch(e) {} }, 60);
 });
 
 window.addEventListener('click', () => { AudioEngine.init(); }, { once: true });
