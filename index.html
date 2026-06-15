@@ -7,11 +7,15 @@
     <link rel="stylesheet" href="styles.css">
     
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.8";
         import { jsPDF } from "https://esm.sh/jspdf@2.5.1"; 
         
-        // Exponer de forma segura al entorno global para app.js
+        // Credenciales de conexión de tu proyecto Supabase
+        const SUPABASE_URL = "https://sdzovnnnzkctkjwnwzog.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNkem92bm5uemtjdGtqd253em9nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NjA0NDAsImV4cCI6MjA5NzAzNjQ0MH0.pKs5KJjqI431dbxolREcCNkgXAOQ5pSAgFiKaApSLTs";
+        
+        // Exponer al espacio global seguro de la aplicación
+        window.supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         window.jspPDF = { jsPDF };
     </script>
 </head>
