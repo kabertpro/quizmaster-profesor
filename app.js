@@ -1,1065 +1,1294 @@
-// ============================================================
-//  QUIZ LEGENDS — app.js v2.0
-//  Kabert Studio · LMKE
-// ============================================================
+/* ============================================================
+   QUIZ LEGENDS — app.js
+   Kabert Studio · LMKE
+   ============================================================ */
 
-const supabase = window.supabase;
+'use strict';
 
-// ── AUDIO ENGINE ─────────────────────────────────────────────
-const AudioEngine = {
-    ctx: null,
-    init() {
-        if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        if (this.ctx.state === 'suspended') this.ctx.resume();
-    },
-    _tone(freq, type, duration, gain, delay = 0) {
-        try {
-            this.init();
-            if (this.ctx.state === 'suspended') return;
-            const t = this.ctx.currentTime + delay;
-            const osc = this.ctx.createOscillator();
-            const g   = this.ctx.createGain();
-            osc.type = type;
-            osc.frequency.setValueAtTime(freq, t);
-            g.gain.setValueAtTime(gain, t);
-            g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-            osc.connect(g); g.connect(this.ctx.destination);
-            osc.start(t); osc.stop(t + duration);
-        } catch(e) {}
-    },
-    btn()   { this._tone(520, 'sine', 0.08, 0.25); },
-    hover() { this._tone(680, 'sine', 0.05, 0.12); },
+/* ============================================================
+   ── CONFIGURACIÓN SUPABASE ──
+   Reemplaza con tus credenciales reales de supabase.com
+   ============================================================ */
+const SUPABASE_URL  = 'https://sdzovnnnzkctkjwnwzog.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNkem92bm5uemtjdGtqd253em9nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NjA0NDAsImV4cCI6MjA5NzAzNjQ0MH0.pKs5KJjqI431dbxolREcCNkgXAOQ5pSAgFiKaApSLTs';
+const ADMIN_KEY     = 'QL2025admin';   // Clave maestra del administrador
 
-    success() {
-        this._tone(659.25, 'triangle', 0.12, 0.35);
-        this._tone(880,    'triangle', 0.18, 0.35, 0.10);
-        this._tone(1046.5, 'triangle', 0.22, 0.3,  0.22);
-    },
-    error() {
-        this._tone(280, 'sawtooth', 0.08, 0.4);
-        this._tone(220, 'sawtooth', 0.15, 0.4, 0.09);
-    },
-    countdown() {
-        this._tone(600, 'sine', 0.07, 0.3);
-    },
-    go() {
-        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) =>
-            this._tone(f, 'triangle', 0.18, 0.35, i * 0.07)
-        );
-    },
-    victory() {
-        const melody = [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5, 1318.51];
-        melody.forEach((f, i) => this._tone(f, 'triangle', 0.22, 0.38, i * 0.13));
-    },
-    achievement() {
-        [392, 523.25, 659.25, 987.77].forEach((f, i) =>
-            this._tone(f, 'square', i === 3 ? 0.28 : 0.12, 0.2, i * 0.08)
-        );
-    },
-    tick() { this._tone(440, 'sine', 0.04, 0.12); },
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-    // Chord-style intro jingle
-    jingle() {
-        const chords = [
-            [261.63, 329.63, 392.00],
-            [293.66, 369.99, 440.00],
-            [349.23, 440.00, 523.25],
-            [392.00, 493.88, 587.33],
-        ];
-        chords.forEach((chord, ci) => {
-            chord.forEach(f => this._tone(f, 'sine', 0.45, 0.28, ci * 0.28));
-        });
-    }
+/* ============================================================
+   ── ESTADO GLOBAL ──
+   ============================================================ */
+const State = {
+  user: null,            // { usuario, nombre_completo, curso }
+  quiz: null,            // cuestionario activo
+  answers: [],           // respuestas del jugador
+  startTime: null,
+  timerInterval: null,
+  elapsedSecs: 0,
+  currentQ: 0,
+  editorQuiz: null,      // cuestionario en el editor
+  isEditing: false,
 };
 
-// ── TOAST SYSTEM ─────────────────────────────────────────────
-const Toast = {
-    show(msg, type = 'info', duration = 3200) {
-        const icons = { success: '✅', error: '❌', info: 'ℹ️', warn: '⚠️' };
-        const el = document.createElement('div');
-        el.className = `toast ${type}`;
-        el.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${msg}</span>`;
-        document.getElementById('toast-container').appendChild(el);
-        setTimeout(() => {
-            el.classList.add('out');
-            setTimeout(() => el.remove(), 320);
-        }, duration);
+/* ============================================================
+   ── AUDIO (Web Audio API) ──
+   ============================================================ */
+const Audio = (() => {
+  let ctx = null;
+  const get = () => {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    return ctx;
+  };
+
+  const play = (type, freq, freq2, dur, wave = 'sine', vol = 0.25) => {
+    try {
+      const c = get();
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.connect(g); g.connect(c.destination);
+      o.type = wave;
+      o.frequency.setValueAtTime(freq, c.currentTime);
+      if (freq2) o.frequency.exponentialRampToValueAtTime(freq2, c.currentTime + dur * 0.5);
+      g.gain.setValueAtTime(vol, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
+      o.start(c.currentTime);
+      o.stop(c.currentTime + dur);
+    } catch(e) { /* silencioso */ }
+  };
+
+  return {
+    click:     () => play('square', 880, null, 0.06, 'square', 0.12),
+    select:    () => play('sine', 440, 660, 0.15),
+    correct:   () => { play('sine',523,784,0.3); setTimeout(()=>play('sine',784,1046,0.2),150); },
+    incorrect: () => play('sawtooth', 200, 100, 0.3, 'sawtooth', 0.15),
+    victory:   () => {
+      const notes=[523,659,784,1046];
+      notes.forEach((n,i)=>setTimeout(()=>play('sine',n,n,0.35,undefined,0.2),i*120));
     },
-    success: (m, d) => Toast.show(m, 'success', d),
-    error:   (m, d) => Toast.show(m, 'error', d),
-    info:    (m, d) => Toast.show(m, 'info', d),
-    warn:    (m, d) => Toast.show(m, 'warn', d),
-};
-
-// ── MODAL SYSTEM ─────────────────────────────────────────────
-const Modal = {
-    _resolve: null,
-    show(title, message, confirmLabel = 'Confirmar') {
-        return new Promise(resolve => {
-            this._resolve = resolve;
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-message').textContent = message;
-            document.getElementById('modal-confirm').textContent = confirmLabel;
-            document.getElementById('modal-overlay').classList.remove('hidden');
-        });
+    countdown: () => play('sine', 880, null, 0.12, 'sine', 0.3),
+    go:        () => { play('sine',1046,1568,0.4,undefined,0.3); },
+    achieve:   () => {
+      setTimeout(()=>play('sine',659,880,0.2),0);
+      setTimeout(()=>play('sine',880,1046,0.25),180);
     },
-    _close(result) {
-        document.getElementById('modal-overlay').classList.add('hidden');
-        if (this._resolve) { this._resolve(result); this._resolve = null; }
-    }
-};
-document.getElementById('modal-confirm').addEventListener('click', () => { AudioEngine.btn(); Modal._close(true); });
-document.getElementById('modal-cancel').addEventListener('click',  () => { AudioEngine.btn(); Modal._close(false); });
+  };
+})();
 
-// ── GLOBAL STATE ─────────────────────────────────────────────
-let currentUser            = null;
-let currentQuiz            = null;
-let quizQuestions          = [];
-let currentQuestionIndex   = 0;
-let userAnswers            = [];
-let chronometerInterval    = null;
-let startTime              = null;
-let elapsedTimeInSeconds   = 0;
+/* ============================================================
+   ── PARTÍCULAS ──
+   ============================================================ */
+const Particles = (() => {
+  let canvas, ctx, particles = [], animId;
 
-// Editor state
-let editorQuestions = [];   // Array of { pregunta, opciones:[], correcta:0 }
+  const init = () => {
+    canvas = document.getElementById('particles');
+    ctx = canvas.getContext('2d');
+    resize();
+    window.addEventListener('resize', resize);
+    for (let i = 0; i < 70; i++) spawn();
+    loop();
+  };
 
-// ── VIEW ROUTER ───────────────────────────────────────────────
-function switchView(id) {
-    document.querySelectorAll('.view-panel').forEach(p => {
-        p.classList.add('hidden');
-        p.classList.remove('active');
-    });
-    const target = document.getElementById(id);
-    if (target) { target.classList.remove('hidden'); target.classList.add('active'); }
-}
-
-// ── SPLASH SCREEN ─────────────────────────────────────────────
-function initSplashScreen() {
-    // Canvas particle field
-    const canvas = document.getElementById('splash-canvas');
-    const ctx    = canvas.getContext('2d');
+  const resize = () => {
     canvas.width  = window.innerWidth;
     canvas.height = window.innerHeight;
+  };
 
-    const particles = Array.from({ length: 70 }, () => ({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        r: Math.random() * 2.5 + 0.5,
-        dx: (Math.random() - 0.5) * 0.5,
-        dy: -(Math.random() * 0.8 + 0.2),
-        a: Math.random(),
-        hue: Math.random() > 0.5 ? '200,255,255' : '138,46,255',
-    }));
+  const spawn = () => {
+    particles.push({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight,
+      r: Math.random() * 1.5 + 0.4,
+      dx: (Math.random() - 0.5) * 0.3,
+      dy: -Math.random() * 0.5 - 0.1,
+      alpha: Math.random() * 0.5 + 0.1,
+      color: Math.random() > 0.5 ? '0,200,255' : '138,46,255',
+    });
+  };
 
-    let animId;
-    function drawParticles() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        particles.forEach(p => {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(${p.hue},${p.a.toFixed(2)})`;
-            ctx.fill();
-            p.x += p.dx; p.y += p.dy;
-            p.a += (Math.random() - 0.5) * 0.02;
-            p.a = Math.max(0.05, Math.min(0.9, p.a));
-            if (p.y < -10) { p.y = canvas.height + 10; p.x = Math.random() * canvas.width; }
-        });
-        animId = requestAnimationFrame(drawParticles);
+  const loop = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach((p, i) => {
+      p.x += p.dx; p.y += p.dy;
+      if (p.y < -5) { particles[i] = { ...p, y: canvas.height + 5, x: Math.random() * canvas.width }; }
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.color},${p.alpha})`;
+      ctx.fill();
+    });
+    animId = requestAnimationFrame(loop);
+  };
+
+  return { init };
+})();
+
+/* ============================================================
+   ── UTILIDADES ──
+   ============================================================ */
+const Utils = {
+  uid: () => Date.now().toString(36) + Math.random().toString(36).slice(2),
+
+  fmtTime: (secs) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return [h, m, s].map(v => String(v).padStart(2,'0')).join(':');
+  },
+
+  secsFromStr: (str) => {
+    // "HH:MM:SS"
+    const parts = str.split(':').map(Number);
+    return parts[0]*3600 + parts[1]*60 + parts[2];
+  },
+
+  // tiempo_ideal viene como minutos (ej: 10 → 600 seg)
+  idealSecs: (mins) => Number(mins) * 60,
+
+  showMsg: (id, msg, type = 'error') => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = msg;
+    el.className = type === 'ok' ? 'msg-ok' : 'msg-error';
+  },
+
+  clearMsg: (...ids) => ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = ''; el.className = 'hidden'; }
+  }),
+
+  today: () => {
+    const d = new Date();
+    return d.toLocaleDateString('es-BO', { year:'numeric', month:'2-digit', day:'2-digit' });
+  },
+};
+
+/* ============================================================
+   ── APP (navegación) ──
+   ============================================================ */
+const App = {
+  showScreen: (id) => {
+    document.querySelectorAll('.screen').forEach(s => {
+      s.classList.remove('active');
+      s.style.display = '';
+    });
+    const el = document.getElementById(id);
+    if (el) { el.classList.add('active'); el.style.display = 'flex'; }
+    Audio.click();
+  },
+
+  openModal: (id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('hidden');
+    Audio.click();
+  },
+
+  closeModal: (id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+  },
+
+  showRanking: async () => {
+    App.openModal('modalRanking');
+    await Ranking.load();
+  },
+
+  showProfile: async () => {
+    App.openModal('modalProfile');
+    await Profile.load();
+  },
+
+  showHistory: async () => {
+    App.openModal('modalHistory');
+    await History.load();
+  },
+};
+
+/* ============================================================
+   ── AUTH ──
+   ============================================================ */
+const Auth = {
+  login: async () => {
+    Audio.click();
+    Utils.clearMsg('loginError');
+    const usuario = document.getElementById('loginUser').value.trim().toLowerCase();
+    const password = document.getElementById('loginPass').value;
+
+    if (!usuario || !password) {
+      Utils.showMsg('loginError', 'Completa todos los campos.'); return;
     }
-    drawParticles();
 
-    // Countdown logic
-    const ringEl  = document.getElementById('ring-fill-el');
-    const numEl   = document.getElementById('countdown-box');
-    const circumf = 2 * Math.PI * 50;  // r=50
-    ringEl.style.strokeDasharray  = circumf;
-    ringEl.style.strokeDashoffset = '0';
-
-    let count = 3;
-    numEl.textContent = count;
-
-    const tick = () => {
-        AudioEngine.countdown();
-        numEl.style.transform = 'scale(1.3)';
-        setTimeout(() => { numEl.style.transform = 'scale(1)'; }, 180);
-
-        count--;
-        if (count > 0) {
-            numEl.textContent = count;
-            ringEl.style.strokeDashoffset = circumf * ((3 - count) / 3);
-        } else if (count === 0) {
-            numEl.textContent = '¡GO!';
-            numEl.style.color = '#00FF99';
-            ringEl.style.strokeDashoffset = circumf;
-            AudioEngine.go();
-        } else {
-            clearInterval(interval);
-            cancelAnimationFrame(animId);
-            document.getElementById('splash-screen').style.transition = 'opacity 0.5s';
-            document.getElementById('splash-screen').style.opacity = '0';
-            setTimeout(() => {
-                document.getElementById('splash-screen').classList.add('hidden');
-                document.getElementById('splash-screen').style.opacity = '';
-                document.getElementById('main-container').classList.remove('hidden');
-                loadRankingGlobal();
-                setTimeout(() => AudioEngine.jingle(), 400);
-            }, 500);
-        }
-    };
-
-    tick();
-    const interval = setInterval(tick, 1000);
-}
-
-// ── REGISTER ─────────────────────────────────────────────────
-document.getElementById('register-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    AudioEngine.btn();
-    const btn = e.target.querySelector('[type=submit]');
-    btn.disabled = true; btn.textContent = 'Registrando…';
-
-    const nombreCompleto = document.getElementById('reg-nombre').value.trim();
-    const curso          = document.getElementById('reg-curso').value;
-    const usuario        = document.getElementById('reg-user').value.trim().toLowerCase();
-    const password       = document.getElementById('reg-pass').value;
-
-    const { data: existing } = await supabase.from('usuarios').select('usuario').eq('usuario', usuario).maybeSingle();
-    if (existing) {
-        AudioEngine.error();
-        Toast.error('El usuario ya existe. Elige otro nombre.');
-        btn.disabled = false; btn.innerHTML = 'REGISTRARSE <span class="btn-arrow">→</span>';
-        return;
-    }
-
-    const { error } = await supabase.from('usuarios').insert([{ usuario, nombre_completo: nombreCompleto, curso, password }]);
-    if (error) {
-        AudioEngine.error();
-        Toast.error('Error al registrar. Intenta de nuevo.');
-        btn.disabled = false; btn.innerHTML = 'REGISTRARSE <span class="btn-arrow">→</span>';
-        return;
-    }
-
-    AudioEngine.achievement();
-    Toast.success('¡Cuenta creada! Ahora inicia sesión.');
-    document.getElementById('register-form').reset();
-    btn.disabled = false; btn.innerHTML = 'REGISTRARSE <span class="btn-arrow">→</span>';
-    switchView('view-login');
-});
-
-// ── LOGIN ─────────────────────────────────────────────────────
-document.getElementById('login-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    AudioEngine.btn();
-    const btn = e.target.querySelector('[type=submit]');
-    btn.disabled = true; btn.textContent = 'Verificando…';
-
-    const usuario  = document.getElementById('login-user').value.trim().toLowerCase();
-    const password = document.getElementById('login-pass').value;
-
-    const { data: user, error } = await supabase.from('usuarios').select('*').eq('usuario', usuario).maybeSingle();
-
-    if (error || !user || user.password !== password) {
-        AudioEngine.error();
-        Toast.error('Credenciales incorrectas.');
-        btn.disabled = false; btn.innerHTML = 'INGRESAR AL SISTEMA <span class="btn-arrow">→</span>';
-        return;
-    }
-
-    currentUser = { usuario: user.usuario, nombreCompleto: user.nombre_completo, curso: user.curso };
-    btn.disabled = false; btn.innerHTML = 'INGRESAR AL SISTEMA <span class="btn-arrow">→</span>';
-    setupUserSession();
-});
-
-function setupUserSession() {
-    document.getElementById('nav-login-btn').classList.add('hidden');
-    document.getElementById('nav-register-btn').classList.add('hidden');
-    const tag = document.getElementById('user-tag');
-    tag.textContent = `👤 ${currentUser.nombreCompleto.toUpperCase()}`;
-    tag.classList.remove('hidden');
-    document.getElementById('nav-logout-btn').classList.remove('hidden');
-    AudioEngine.achievement();
-    Toast.success(`¡Bienvenido, ${currentUser.nombreCompleto.split(' ')[0]}!`);
-    loadStudentDashboard();
-}
-
-document.getElementById('nav-logout-btn').addEventListener('click', () => {
-    AudioEngine.btn();
-    currentUser = null;
-    document.getElementById('nav-login-btn').classList.remove('hidden');
-    document.getElementById('nav-register-btn').classList.remove('hidden');
-    document.getElementById('user-tag').classList.add('hidden');
-    document.getElementById('nav-logout-btn').classList.add('hidden');
-    switchView('view-ranking');
-    loadRankingGlobal();
-});
-
-// ── NAVIGATION ────────────────────────────────────────────────
-document.getElementById('nav-logo-btn').addEventListener('click', () => {
-    AudioEngine.btn();
-    if (currentUser) loadStudentDashboard(); else switchView('view-ranking');
-});
-document.getElementById('nav-ranking-btn').addEventListener('click', () => { AudioEngine.btn(); switchView('view-ranking'); loadRankingGlobal(); });
-document.getElementById('nav-login-btn').addEventListener('click',   () => { AudioEngine.btn(); switchView('view-login'); });
-document.getElementById('nav-register-btn').addEventListener('click',() => { AudioEngine.btn(); switchView('view-register'); });
-
-document.getElementById('go-login-link').addEventListener('click', e => { e.preventDefault(); AudioEngine.btn(); switchView('view-login'); });
-document.getElementById('go-register-link').addEventListener('click', e => { e.preventDefault(); AudioEngine.btn(); switchView('view-register'); });
-
-// ── RANKING ───────────────────────────────────────────────────
-async function loadRankingGlobal() {
     try {
-        const { data: records, error } = await supabase
-            .from('records')
-            .select('*')
-            .order('mejor_puntaje', { ascending: false })
-            .order('mejor_tiempo',  { ascending: true })
-            .limit(20);
+      const { data, error } = await db.from('usuarios')
+        .select('*').eq('usuario', usuario).eq('password', password).single();
 
-        const tbody = document.getElementById('ranking-tbody');
-        tbody.innerHTML = '';
+      if (error || !data) {
+        Utils.showMsg('loginError', 'Usuario o contraseña incorrectos.'); return;
+      }
 
-        if (error || !records?.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:30px;color:rgba(255,255,255,0.3)">Aún no se registran leyendas en el podio.</td></tr>';
-            return;
-        }
+      State.user = { usuario: data.usuario, nombre_completo: data.nombre_completo, curso: data.curso };
+      localStorage.setItem('ql_session', JSON.stringify(State.user));
+      Auth.enterDashboard();
+    } catch(e) {
+      Utils.showMsg('loginError', 'Error de conexión. Intenta de nuevo.');
+    }
+  },
 
-        const medals = ['🥇', '🥈', '🥉'];
-        records.forEach((row, idx) => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><b>${medals[idx] || idx + 1}</b></td>
-                <td>${row.nombre_completo}</td>
-                <td>${row.curso}</td>
-                <td>${row.cuestionario_nombre}</td>
-                <td><b>${row.mejor_puntaje} Pts</b></td>
-                <td>${row.mejor_tiempo}</td>
-                <td>${row.cantidad_intentos} / 3</td>
-            `;
-            tbody.appendChild(tr);
-        });
-    } catch(err) { console.error(err); }
-}
+  register: async () => {
+    Audio.click();
+    Utils.clearMsg('regError', 'regOk');
+    const nombre   = document.getElementById('regName').value.trim();
+    const curso    = document.getElementById('regCurso').value;
+    const usuario  = document.getElementById('regUser').value.trim().toLowerCase();
+    const password = document.getElementById('regPass').value;
 
-// ── STUDENT DASHBOARD ─────────────────────────────────────────
-async function loadStudentDashboard() {
-    switchView('view-student');
-    document.getElementById('student-profile-name').textContent = currentUser.nombreCompleto;
-    document.getElementById('student-profile-course').textContent = currentUser.curso;
+    if (!nombre || !curso || !usuario || !password) {
+      Utils.showMsg('regError', 'Completa todos los campos.'); return;
+    }
+    if (/\s/.test(usuario)) {
+      Utils.showMsg('regError', 'El usuario no puede tener espacios.'); return;
+    }
+    if (!/^[a-z0-9_]+$/.test(usuario)) {
+      Utils.showMsg('regError', 'El usuario solo puede tener letras minúsculas, números y guión bajo.'); return;
+    }
 
-    const { data: historyData } = await supabase
-        .from('records').select('*').eq('usuario', currentUser.usuario);
+    try {
+      const { data: exist } = await db.from('usuarios').select('usuario').eq('usuario', usuario).single();
+      if (exist) { Utils.showMsg('regError', 'Ese usuario ya está en uso.'); return; }
 
-    let totalPoints = 0, completedCount = 0;
-    const historyList = document.getElementById('student-history-list');
-    historyList.innerHTML = '';
-    const trackingMap = {};
+      const { error } = await db.from('usuarios').insert({
+        usuario, nombre_completo: nombre, curso, password
+      });
+      if (error) { Utils.showMsg('regError', 'Error al registrar. Intenta de nuevo.'); return; }
 
-    (historyData || []).forEach(row => {
-        totalPoints   += row.puntaje_final;
-        completedCount++;
-        const li = document.createElement('li');
-        li.innerHTML  = `🏁 <b>${row.cuestionario_nombre}</b><br>Puntos: ${row.puntaje_final} &nbsp;|&nbsp; Intento: ${row.intento_nro} &nbsp;|&nbsp; ${row.tiempo_empleado}`;
-        historyList.appendChild(li);
-        trackingMap[row.cuestionario_id] = row.cantidad_intentos;
-    });
+      Utils.showMsg('regOk', '¡Cuenta creada! Iniciando sesión...', 'ok');
+      setTimeout(() => {
+        State.user = { usuario, nombre_completo: nombre, curso };
+        localStorage.setItem('ql_session', JSON.stringify(State.user));
+        Auth.enterDashboard();
+      }, 1200);
+    } catch(e) {
+      Utils.showMsg('regError', 'Error de conexión.');
+    }
+  },
 
-    document.getElementById('stat-completed').textContent = completedCount;
-    document.getElementById('stat-points').textContent    = totalPoints;
+  logout: () => {
+    localStorage.removeItem('ql_session');
+    State.user = null;
+    App.showScreen('screenLanding');
+    Audio.click();
+  },
 
-    const { data: quizzesData } = await supabase
-        .from('cuestionarios').select('*').eq('curso_destinatario', currentUser.curso);
+  enterDashboard: async () => {
+    App.showScreen('screenDashboard');
+    document.getElementById('hudName').textContent = State.user.nombre_completo;
+    document.getElementById('hudCurso').textContent = State.user.curso;
+    await Dashboard.load();
+    Audio.select();
+  },
 
-    const grid = document.getElementById('quizzes-grid');
-    grid.innerHTML = '';
+  checkSession: () => {
+    const raw = localStorage.getItem('ql_session');
+    if (!raw) return;
+    try {
+      State.user = JSON.parse(raw);
+      Auth.enterDashboard();
+    } catch(e) { localStorage.removeItem('ql_session'); }
+  },
+};
 
-    if (!quizzesData?.length) {
-        grid.innerHTML = '<p class="text-center" style="color:rgba(255,255,255,0.3);padding:40px">No tienes cuestionarios activos para tu curso.</p>';
+/* ============================================================
+   ── DASHBOARD ──
+   ============================================================ */
+const Dashboard = {
+  load: async () => {
+    await Dashboard.loadStats();
+    await Dashboard.loadQuizzes();
+    Dashboard.renderAchievements();
+  },
+
+  loadStats: async () => {
+    if (!State.user) return;
+    try {
+      const { data } = await db.from('records')
+        .select('mejor_puntaje, mejor_tiempo, puntaje_final, cantidad_intentos')
+        .eq('usuario', State.user.usuario);
+
+      const records = data || [];
+      const totalQ  = records.length;
+      const bestScore = records.reduce((m,r)=>Math.max(m, r.mejor_puntaje||0), 0);
+      const totalPts  = records.reduce((s,r)=>s+(r.puntaje_final||0), 0);
+      const bestTime  = records.filter(r=>r.mejor_tiempo).map(r=>r.mejor_tiempo)
+        .sort((a,b)=>Utils.secsFromStr(a)-Utils.secsFromStr(b))[0] || '--';
+
+      document.getElementById('dashStats').innerHTML = `
+        <div class="stat-chip"><span class="sc-val">${totalQ}</span><span class="sc-lbl">Cuestionarios</span></div>
+        <div class="stat-chip"><span class="sc-val">${bestScore}</span><span class="sc-lbl">Mejor Puntaje</span></div>
+        <div class="stat-chip"><span class="sc-val">${totalPts}</span><span class="sc-lbl">Total Puntos</span></div>
+        <div class="stat-chip"><span class="sc-val">${bestTime}</span><span class="sc-lbl">Mejor Tiempo</span></div>
+      `;
+      // Store for achievements
+      State._stats = { totalQ, totalPts, records };
+    } catch(e) { /* ignore */ }
+  },
+
+  loadQuizzes: async () => {
+    if (!State.user) return;
+    const el = document.getElementById('quizList');
+    el.innerHTML = '<p style="color:var(--muted);font-size:.9rem">Cargando...</p>';
+
+    try {
+      const { data: quizzes } = await db.from('cuestionarios')
+        .select('id, nombre, curso_destinatario, puntaje_maximo, tiempo_ideal')
+        .eq('curso_destinatario', State.user.curso);
+
+      const { data: records } = await db.from('records')
+        .select('cuestionario_id, cantidad_intentos, mejor_puntaje, mejor_tiempo')
+        .eq('usuario', State.user.usuario);
+
+      const recMap = {};
+      (records || []).forEach(r => { recMap[r.cuestionario_id] = r; });
+
+      if (!quizzes || !quizzes.length) {
+        el.innerHTML = '<p style="color:var(--muted);font-size:.9rem">No hay cuestionarios disponibles para tu curso.</p>';
         return;
+      }
+
+      el.innerHTML = quizzes.map(q => {
+        const rec   = recMap[q.id];
+        const tries = rec ? rec.cantidad_intentos : 0;
+        const locked = tries >= 3;
+        const badge  = locked ? '💥 BLOQUEADO' : (tries > 0 ? `✏️ Intento ${tries}/3` : '🆕 Nuevo');
+        const badgeClass = locked ? '' : 'ok';
+
+        return `<div class="quiz-card ${locked?'locked':''}" onclick="${locked ? '' : `Quiz.preview('${q.id}')`}">
+          <div class="qc-badge ${badgeClass}">${badge}</div>
+          <div class="qc-name">${q.nombre}</div>
+          <div class="qc-meta">
+            📚 ${q.curso_destinatario}<br>
+            ⭐ Puntaje máx: <b>${q.puntaje_maximo}</b><br>
+            ⏱ Tiempo ideal: <b>${q.tiempo_ideal} min</b>
+            ${rec ? `<br>🏆 Mejor: <b>${rec.mejor_puntaje}</b>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+    } catch(e) {
+      el.innerHTML = '<p style="color:var(--red);font-size:.9rem">Error al cargar cuestionarios.</p>';
     }
+  },
 
-    quizzesData.forEach(quiz => {
-        const intentosPrevios = trackingMap[quiz.id] || 0;
-        const locked = intentosPrevios >= 3;
-        const card = document.createElement('div');
-        card.className = 'quiz-card';
-        card.innerHTML = `
-            <div>
-                <h3>🎮 ${quiz.nombre}</h3>
-                <div class="quiz-meta">
-                    <span>⏱ ${quiz.tiempo_ideal} min</span>
-                    <span>💯 ${quiz.puntaje_maximo} Pts base</span>
-                </div>
-                <p style="font-size:.82rem;color:${locked ? 'var(--error)' : 'var(--neon-blue)'}">
-                    Intentos usados: ${intentosPrevios} / 3
-                </p>
-            </div>
-            <button class="btn ${locked ? 'btn-secondary' : 'btn-primary'} btn-block"
-                    style="margin-top:16px" ${locked ? 'disabled' : ''} id="btn-start-${quiz.id}">
-                ${locked ? '🔒 BLOQUEADO' : '⚡ INICIAR DESAFÍO'}
-            </button>
-        `;
-        grid.appendChild(card);
-        if (!locked) {
-            document.getElementById(`btn-start-${quiz.id}`).addEventListener('click', () => {
-                AudioEngine.btn();
-                startQuizEvaluation(quiz, intentosPrevios + 1);
-            });
-        }
-    });
-}
+  renderAchievements: () => {
+    const stats = State._stats || {};
+    const totalQ = stats.totalQ || 0;
+    const records = stats.records || [];
+    const avg = records.length
+      ? records.reduce((s,r)=>s+(r.porcentaje||0),0)/records.length
+      : 0;
 
-// ── QUIZ PLAY ─────────────────────────────────────────────────
-function startQuizEvaluation(quiz, nroIntento) {
-    AudioEngine.achievement();
-    currentQuiz           = { ...quiz, nroIntento };
-    quizQuestions         = [...quiz.preguntas];
-    currentQuestionIndex  = 0;
-    userAnswers           = [];
+    const defs = [
+      { icon:'🥉', name:'Aprendiz',  desc:'Primer cuestionario completado', ok: totalQ >= 1 },
+      { icon:'🥈', name:'Experto',   desc:'5 cuestionarios completados',    ok: totalQ >= 5 },
+      { icon:'🥇', name:'Maestro',   desc:'10 cuestionarios completados',   ok: totalQ >= 10 },
+      { icon:'👑', name:'Leyenda',   desc:'Promedio superior al 90%',       ok: avg >= 90 },
+    ];
 
-    switchView('view-quiz-play');
-    document.getElementById('play-quiz-title').textContent = currentQuiz.nombre;
+    document.getElementById('achievementsBar').innerHTML = defs.map(a => `
+      <div class="ach-chip ${a.ok?'unlocked':''}">
+        <span class="ach-icon">${a.icon}</span>
+        <div>
+          <span class="ach-name">${a.name}</span>
+          <span class="ach-desc">${a.desc}</span>
+        </div>
+      </div>`).join('');
+  },
+};
 
-    const docEl = document.documentElement;
-    if (docEl.requestFullscreen) docEl.requestFullscreen().catch(()=>{});
+/* ============================================================
+   ── QUIZ ──
+   ============================================================ */
+const Quiz = {
+  preview: async (quizId) => {
+    Audio.click();
+    try {
+      const { data } = await db.from('cuestionarios').select('*').eq('id', quizId).single();
+      if (!data) return;
+      State.quiz = data;
 
-    elapsedTimeInSeconds = 0;
-    startTime = Date.now();
-    runChronometer();
-    renderCurrentQuestion();
-}
+      const { data: rec } = await db.from('records')
+        .select('*').eq('usuario', State.user.usuario).eq('cuestionario_id', quizId).single();
+      State.record = rec || null;
 
-function runChronometer() {
-    clearInterval(chronometerInterval);
-    chronometerInterval = setInterval(() => {
-        elapsedTimeInSeconds = Math.floor((Date.now() - startTime) / 1000);
-        const h = Math.floor(elapsedTimeInSeconds / 3600).toString().padStart(2,'0');
-        const m = Math.floor((elapsedTimeInSeconds % 3600) / 60).toString().padStart(2,'0');
-        const s = (elapsedTimeInSeconds % 60).toString().padStart(2,'0');
-        document.getElementById('quiz-chronometer').textContent = `${h}:${m}:${s}`;
+      const tries = rec ? rec.cantidad_intentos : 0;
+      document.getElementById('mqTitle').textContent   = data.nombre;
+      document.getElementById('mqInfo').innerHTML = `
+        <b>Curso:</b> ${data.curso_destinatario}<br>
+        <b>Preguntas:</b> ${(data.preguntas||[]).length}<br>
+        <b>Puntaje máximo:</b> ${data.puntaje_maximo}<br>
+        <b>Tiempo ideal:</b> ${data.tiempo_ideal} minutos
+      `;
+
+      let dotsHTML = '';
+      for (let i=1;i<=3;i++) {
+        dotsHTML += `<span class="attempt-dot ${i<=tries?'used':'avail'}">${i}</span>`;
+      }
+      document.getElementById('mqAttempts').innerHTML = `Intentos: ${dotsHTML}`;
+
+      const startBtn = document.getElementById('mqStart');
+      startBtn.disabled = tries >= 3;
+      startBtn.textContent = tries >= 3 ? '💥 BLOQUEADO' : '⚡ INICIAR';
+
+      App.openModal('modalQuiz');
+    } catch(e) { /* ignore */ }
+  },
+
+  start: async () => {
+    App.closeModal('modalQuiz');
+    Audio.click();
+    // Fullscreen
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch(e) { /* permitir sin fullscreen en iOS */ }
+    Quiz.countdown();
+  },
+
+  countdown: () => {
+    App.openModal('modalCountdown');
+    const steps = ['PREPÁRATE', '3','2','1','¡COMIENZA!'];
+    let i = 0;
+    const tick = () => {
+      const cdText = document.getElementById('cdText');
+      const cdNum  = document.getElementById('cdNum');
+      if (i === 0) {
+        cdText.textContent = 'PREPÁRATE'; cdNum.textContent = '';
+        Audio.select();
+      } else if (i < 4) {
+        cdText.textContent = ''; cdNum.textContent = steps[i];
+        Audio.countdown();
+      } else {
+        cdText.textContent = '¡COMIENZA!'; cdNum.textContent = '';
+        Audio.go();
+        setTimeout(() => {
+          App.closeModal('modalCountdown');
+          Quiz.initGame();
+        }, 700);
+        return;
+      }
+      i++;
+      setTimeout(tick, 900);
+    };
+    tick();
+  },
+
+  initGame: () => {
+    State.answers    = [];
+    State.currentQ   = 0;
+    State.startTime  = Date.now();
+    State.elapsedSecs = 0;
+
+    App.showScreen('screenQuiz');
+    Quiz.startTimer();
+    Quiz.renderQuestion();
+
+    // Fullscreen change listener
+    document.addEventListener('fullscreenchange', Quiz.onFullscreenChange);
+  },
+
+  startTimer: () => {
+    clearInterval(State.timerInterval);
+    State.timerInterval = setInterval(() => {
+      State.elapsedSecs++;
+      const el = document.getElementById('qTimer');
+      if (el) {
+        el.textContent = Utils.fmtTime(State.elapsedSecs);
+        // Urgent if > 2x ideal
+        const idealS = Utils.idealSecs(State.quiz.tiempo_ideal);
+        el.classList.toggle('urgent', State.elapsedSecs > idealS * 2);
+      }
     }, 1000);
-}
+  },
 
-function renderCurrentQuestion() {
-    if (currentQuestionIndex >= quizQuestions.length) { finishQuizEvaluation(); return; }
+  renderQuestion: () => {
+    const q = State.quiz.preguntas[State.currentQ];
+    const total = State.quiz.preguntas.length;
 
-    const progress = ((currentQuestionIndex + 1) / quizQuestions.length) * 100;
-    document.getElementById('play-quiz-progress').textContent  = `Pregunta ${currentQuestionIndex + 1} de ${quizQuestions.length}`;
-    document.getElementById('quiz-progress-fill').style.width  = `${(currentQuestionIndex / quizQuestions.length) * 100}%`;
-    document.getElementById('question-number-tag').textContent = `Q${currentQuestionIndex + 1}`;
+    document.getElementById('qProgress').textContent =
+      `Pregunta ${State.currentQ + 1} / ${total}`;
 
-    const q   = quizQuestions[currentQuestionIndex];
-    const qEl = document.getElementById('play-question-text');
-    qEl.style.opacity = '0';
-    qEl.textContent   = q.pregunta;
-    setTimeout(() => { qEl.style.transition = 'opacity 0.3s'; qEl.style.opacity = '1'; }, 50);
+    document.getElementById('questionText').textContent = q.pregunta;
 
-    const container = document.getElementById('play-options-container');
-    container.innerHTML = '';
-    const letters = ['A', 'B', 'C', 'D'];
+    const labels = ['A','B','C','D'];
+    document.getElementById('optionsGrid').innerHTML = q.opciones.map((op, i) => `
+      <button class="option-btn" onclick="Quiz.answer(${i})">${labels[i]}) ${op}</button>
+    `).join('');
+  },
 
-    q.opciones.forEach((op, idx) => {
-        const btn = document.createElement('button');
-        btn.className = 'option-btn';
-        btn.innerHTML = `<span style="font-family:var(--font-display);font-size:.75rem;color:rgba(0,200,255,0.5);min-width:22px">${letters[idx]}</span>${op}`;
-        btn.addEventListener('mouseenter', () => AudioEngine.hover());
-        btn.addEventListener('click', () => evaluateOption(idx, btn));
-        container.appendChild(btn);
-    });
-}
-
-function evaluateOption(idx, btn) {
-    const q       = quizQuestions[currentQuestionIndex];
-    const allBtns = document.querySelectorAll('.option-btn');
-    allBtns.forEach(b => b.style.pointerEvents = 'none');
-
+  answer: (idx) => {
+    const q = State.quiz.preguntas[State.currentQ];
     const isCorrect = idx === q.correcta;
-    userAnswers.push({ selectedIndex: idx, isCorrect });
 
-    if (isCorrect) {
-        AudioEngine.success();
-        btn.classList.add('correct-flash');
-    } else {
-        AudioEngine.error();
-        btn.classList.add('wrong-flash');
-        allBtns[q.correcta].classList.add('correct-flash');
+    State.answers.push({ selected: idx, correct: q.correcta, ok: isCorrect });
+
+    // Visual feedback
+    const btns = document.querySelectorAll('.option-btn');
+    btns.forEach(b => b.disabled = true);
+    btns[idx].classList.add(isCorrect ? 'correct' : 'wrong');
+    if (!isCorrect) {
+      btns[q.correcta].classList.add('correct');
+      if (navigator.vibrate) navigator.vibrate([80,30,80]);
     }
+
+    isCorrect ? Audio.correct() : Audio.incorrect();
 
     setTimeout(() => {
-        currentQuestionIndex++;
-        renderCurrentQuestion();
-    }, 1400);
-}
+      State.currentQ++;
+      if (State.currentQ < State.quiz.preguntas.length) {
+        Quiz.renderQuestion();
+      } else {
+        Quiz.finish();
+      }
+    }, 900);
+  },
 
-document.getElementById('btn-force-exit-fullscreen').addEventListener('click', () => {
-    if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
-});
+  finish: async () => {
+    clearInterval(State.timerInterval);
+    document.removeEventListener('fullscreenchange', Quiz.onFullscreenChange);
 
-// ── FINISH QUIZ ───────────────────────────────────────────────
-async function finishQuizEvaluation() {
-    clearInterval(chronometerInterval);
-    AudioEngine.victory();
-    if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
-
-    const correctCount        = userAnswers.filter(a => a.isCorrect).length;
-    const porcentaje          = Math.round((correctCount / quizQuestions.length) * 100);
-    const tiempoIdealSegundos = currentQuiz.tiempo_ideal * 60;
-    let bonificacion          = 0;
-
-    if (elapsedTimeInSeconds < tiempoIdealSegundos && correctCount > 0) {
-        bonificacion = Math.round(((tiempoIdealSegundos - elapsedTimeInSeconds) * 0.1) * (porcentaje / 100));
+    // Exit fullscreen
+    if (document.fullscreenElement) {
+      try { await document.exitFullscreen(); } catch(e) {}
     }
 
-    const puntajeFinalTotal = Math.round(((correctCount / quizQuestions.length) * currentQuiz.puntaje_maximo) + bonificacion);
-    const mm = Math.floor(elapsedTimeInSeconds / 60).toString().padStart(2,'0');
-    const ss = (elapsedTimeInSeconds % 60).toString().padStart(2,'0');
-    const stringTiempo = `${mm}:${ss}`;
-    const recordId     = `${currentUser.usuario}_${currentQuiz.id}`;
+    // Calcular puntaje
+    const total   = State.quiz.preguntas.length;
+    const correct = State.answers.filter(a=>a.ok).length;
+    const pct     = Math.round((correct / total) * 100);
+    const maxPts  = State.quiz.puntaje_maximo;
+    const idealS  = Utils.idealSecs(State.quiz.tiempo_ideal);
+    const elapsed = State.elapsedSecs;
+    const timeStr = Utils.fmtTime(elapsed);
 
-    const { data: currentRecord } = await supabase.from('records').select('*').eq('id', recordId).maybeSingle();
-    let payload = {};
-
-    if (!currentRecord) {
-        payload = {
-            id: recordId, usuario: currentUser.usuario, nombre_completo: currentUser.nombreCompleto,
-            curso: currentUser.curso, cuestionario_id: currentQuiz.id, cuestionario_nombre: currentQuiz.nombre,
-            intento1: puntajeFinalTotal, intento_nro: 1, cantidad_intentos: 1, mejor_puntaje: puntajeFinalTotal,
-            mejor_tiempo: stringTiempo, ultimo_intento: puntajeFinalTotal, tiempo_empleado: stringTiempo,
-            porcentaje, puntaje_final: puntajeFinalTotal
-        };
-    } else {
-        const nuevoIntento = currentRecord.cantidad_intentos + 1;
-        payload = {
-            ...currentRecord, cantidad_intentos: nuevoIntento, intento_nro: nuevoIntento,
-            ultimo_intento: puntajeFinalTotal, tiempo_empleado: stringTiempo, porcentaje, puntaje_final: puntajeFinalTotal
-        };
-        payload[`intento${nuevoIntento}`] = puntajeFinalTotal;
-        if (puntajeFinalTotal > currentRecord.mejor_puntaje) {
-            payload.mejor_puntaje = puntajeFinalTotal;
-            payload.mejor_tiempo  = stringTiempo;
-        }
+    let bonus = 0;
+    if (elapsed < idealS) {
+      bonus = Math.round(((idealS - elapsed) * 0.1) * (pct / 100));
     }
+    const puntajeBase  = Math.round((correct / total) * maxPts);
+    const puntajeFinal = puntajeBase + bonus;
 
-    await supabase.from('records').upsert([payload]);
+    State.result = { total, correct, pct, puntajeFinal, puntajeBase, bonus, timeStr, elapsed };
 
-    window.currentEvaluationReport = {
-        estudiante: currentUser.nombreCompleto, curso: currentUser.curso,
-        cuestionario: currentQuiz.nombre, puntaje: puntajeFinalTotal,
-        maximoBase: currentQuiz.puntaje_maximo, porcentaje, tiempo: stringTiempo,
-        intento: payload.cantidad_intentos, fecha: new Date().toLocaleDateString()
-    };
+    await Quiz.saveRecord(puntajeFinal, pct, timeStr);
+    Quiz.showResult();
+    Audio.victory();
+    Quiz.confetti();
+  },
 
-    document.getElementById('res-score').textContent   = `${puntajeFinalTotal} / ${currentQuiz.puntaje_maximo}`;
-    document.getElementById('res-percent').textContent = `${porcentaje}%`;
-    document.getElementById('res-time').textContent    = stringTiempo;
-    document.getElementById('res-bonus').textContent   = `+${bonificacion} Pts`;
-    document.getElementById('result-quiz-name').textContent = currentQuiz.nombre;
+  saveRecord: async (puntajeFinal, pct, timeStr) => {
+    const u = State.user;
+    const q = State.quiz;
+    try {
+      const { data: existing } = await db.from('records')
+        .select('*').eq('usuario', u.usuario).eq('cuestionario_id', q.id).single();
 
-    switchView('view-results');
-    triggerConfetti();
-}
+      const tries = existing ? existing.cantidad_intentos + 1 : 1;
+      const isBetter = !existing || puntajeFinal > existing.mejor_puntaje;
+      const betterTime = !existing || State.elapsedSecs < Utils.secsFromStr(existing.mejor_tiempo || '99:99:99');
 
-function triggerConfetti() {
-    const wrapper = document.getElementById('confetti-wrapper');
-    wrapper.innerHTML = '';
-    for (let i = 0; i < 60; i++) {
-        const c = document.createElement('div');
-        const colors = ['#00C8FF','#8A2EFF','#FFD700','#00FF99','#FF4060','#00FFE5'];
-        const size   = Math.random() * 10 + 5;
-        c.style.cssText = `
-            position:absolute;
-            width:${size}px; height:${size * (Math.random() > 0.5 ? 1 : 0.4)}px;
-            background:${colors[Math.floor(Math.random()*colors.length)]};
-            left:${Math.random()*100}%; top:0;
-            border-radius:${Math.random() > 0.5 ? '50%' : '2px'};
+      if (!existing) {
+        await db.from('records').insert({
+          id: Utils.uid(),
+          usuario: u.usuario,
+          nombre_completo: u.nombre_completo,
+          curso: u.curso,
+          cuestionario_id: q.id,
+          cuestionario_nombre: q.nombre,
+          intento1: puntajeFinal,
+          intento2: null, intento3: null,
+          intento_nro: 1,
+          cantidad_intentos: 1,
+          mejor_puntaje: puntajeFinal,
+          mejor_tiempo: timeStr,
+          ultimo_intento: puntajeFinal,
+          tiempo_empleado: timeStr,
+          porcentaje: pct,
+          puntaje_final: puntajeFinal,
+        });
+      } else {
+        const upd = {
+          ultimo_intento: puntajeFinal,
+          tiempo_empleado: timeStr,
+          porcentaje: pct,
+          puntaje_final: puntajeFinal,
+          cantidad_intentos: tries,
+          intento_nro: tries,
+        };
+        if (tries === 2) upd.intento2 = puntajeFinal;
+        if (tries === 3) upd.intento3 = puntajeFinal;
+        if (isBetter)   upd.mejor_puntaje = puntajeFinal;
+        if (betterTime) upd.mejor_tiempo  = timeStr;
+
+        await db.from('records')
+          .update(upd)
+          .eq('usuario', u.usuario)
+          .eq('cuestionario_id', q.id);
+      }
+
+      State.result.intento = tries;
+    } catch(e) { State.result.intento = 1; }
+  },
+
+  showResult: () => {
+    const r = State.result;
+    const icon = r.pct >= 90 ? '🏆' : r.pct >= 70 ? '🥈' : r.pct >= 50 ? '🥉' : '😤';
+    const title = r.pct >= 90 ? '¡LEYENDA!' : r.pct >= 70 ? '¡GRAN RESULTADO!' : r.pct >= 50 ? '¡APROBADO!' : 'SIGUE INTENTANDO';
+
+    document.getElementById('resultIcon').textContent = icon;
+    document.getElementById('resultTitle').textContent = title;
+    document.getElementById('resultStats').innerHTML = `
+      <div class="rs-row"><span class="rs-lbl">Correctas</span><span class="rs-val">${r.correct} / ${r.total}</span></div>
+      <div class="rs-row"><span class="rs-lbl">Porcentaje</span><span class="rs-val">${r.pct}%</span></div>
+      <div class="rs-row"><span class="rs-lbl">Puntaje base</span><span class="rs-val">${r.puntajeBase}</span></div>
+      <div class="rs-row"><span class="rs-lbl">Bonificación velocidad</span><span class="rs-val">+${r.bonus}</span></div>
+      <div class="rs-row"><span class="rs-lbl">Puntaje final</span><span class="rs-val" style="color:var(--gold)">${r.puntajeFinal}</span></div>
+      <div class="rs-row"><span class="rs-lbl">Tiempo empleado</span><span class="rs-val">${r.timeStr}</span></div>
+      <div class="rs-row"><span class="rs-lbl">Intento</span><span class="rs-val">${r.intento} / 3</span></div>
+    `;
+    App.showScreen('screenResult');
+
+    // Logro nuevo
+    setTimeout(() => Quiz.checkAchievements(), 1200);
+  },
+
+  checkAchievements: async () => {
+    if (!State.user) return;
+    const { data: records } = await db.from('records')
+      .select('cantidad_intentos, porcentaje').eq('usuario', State.user.usuario);
+    const totalQ = (records||[]).length;
+    const avg = totalQ ? (records||[]).reduce((s,r)=>s+(r.porcentaje||0),0)/totalQ : 0;
+
+    const milestones = [
+      { threshold: 1, check: totalQ >= 1 },
+      { threshold: 5, check: totalQ >= 5 },
+      { threshold: 10, check: totalQ >= 10 },
+      { threshold: 'legend', check: avg >= 90 },
+    ];
+    milestones.forEach(m => {
+      if (m.check) Audio.achieve();
+    });
+  },
+
+  exitFullscreen: async () => {
+    if (document.fullscreenElement) {
+      try { await document.exitFullscreen(); } catch(e) {}
+    }
+  },
+
+  reenterFullscreen: async () => {
+    App.closeModal('modalFSWarn');
+    try { await document.documentElement.requestFullscreen(); } catch(e) {}
+  },
+
+  forceEnd: async () => {
+    App.closeModal('modalFSWarn');
+    clearInterval(State.timerInterval);
+    document.removeEventListener('fullscreenchange', Quiz.onFullscreenChange);
+    if (document.fullscreenElement) {
+      try { await document.exitFullscreen(); } catch(e) {}
+    }
+    App.showScreen('screenDashboard');
+    await Dashboard.load();
+  },
+
+  onFullscreenChange: () => {
+    if (!document.fullscreenElement && App._activeScreen() === 'screenQuiz') {
+      App.openModal('modalFSWarn');
+    }
+  },
+
+  confetti: () => {
+    const colors = ['#00C8FF','#8A2EFF','#FFD700','#00FF99','#FF4D4D','#fff'];
+    for (let i = 0; i < 80; i++) {
+      setTimeout(() => {
+        const p = document.createElement('div');
+        p.className = 'confetti-piece';
+        p.style.cssText = `
+          left: ${Math.random()*100}vw;
+          background: ${colors[Math.floor(Math.random()*colors.length)]};
+          width: ${6+Math.random()*8}px;
+          height: ${10+Math.random()*12}px;
+          animation-duration: ${1.5+Math.random()*2}s;
+          animation-delay: ${Math.random()*0.5}s;
+          transform: rotate(${Math.random()*360}deg);
         `;
-        const anim = c.animate([
-            { transform: `translateY(0) rotate(0deg) translateX(0)`, opacity: 1 },
-            { transform: `translateY(${350 + Math.random()*200}px) rotate(${Math.random()*720}deg) translateX(${(Math.random()-0.5)*80}px)`, opacity: 0 }
-        ], { duration: 2000 + Math.random() * 2000, delay: Math.random() * 400 });
-        wrapper.appendChild(c);
-        anim.onfinish = () => c.remove();
+        document.body.appendChild(p);
+        setTimeout(() => p.remove(), 4000);
+      }, i * 20);
     }
-}
+  },
 
-// ── PDF CERTIFICATE ───────────────────────────────────────────
-document.getElementById('btn-download-pdf').addEventListener('click', () => {
-    AudioEngine.achievement();
-    const r = window.currentEvaluationReport;
-    if (!r) return;
-    const { jsPDF } = window.jspPDF;
-    const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+  downloadPDF: () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const u = State.user;
+    const q = State.quiz;
+    const r = State.result;
+    const W = 210, cx = W/2;
 
-    // Background
-    doc.setFillColor(6, 13, 26);
+    // Fondo oscuro
+    doc.setFillColor(8, 17, 31);
     doc.rect(0, 0, 210, 297, 'F');
 
-    // Decorative borders
-    doc.setDrawColor(0, 200, 255); doc.setLineWidth(1.5);
-    doc.rect(10, 10, 190, 277);
-    doc.setDrawColor(138, 46, 255); doc.setLineWidth(0.5);
-    doc.rect(14, 14, 182, 269);
+    // Header gradient strip
+    doc.setFillColor(0, 200, 255);
+    doc.rect(0, 0, 210, 32, 'F');
+    doc.setFillColor(138, 46, 255);
+    doc.rect(0, 20, 210, 12, 'F');
 
-    // Header
-    doc.setTextColor(0, 200, 255); doc.setFont("helvetica","bold"); doc.setFontSize(32);
-    doc.text("QUIZ LEGENDS", 105, 38, { align:"center" });
-    doc.setFontSize(9); doc.setTextColor(138,46,255);
-    doc.text("CONQUISTA EL CONOCIMIENTO · ROMPE RÉCORDS · CONVIÉRTETE EN LEYENDA", 105, 46, { align:"center" });
+    // Title
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(28); doc.setTextColor(255,255,255);
+    doc.text('QUIZ LEGENDS', cx, 14, { align:'center' });
+    doc.setFontSize(9); doc.setTextColor(220,220,255);
+    doc.text('Kabert Studio · LMKE', cx, 26, { align:'center' });
 
-    // Separator line
-    doc.setDrawColor(255,215,0); doc.setLineWidth(0.5);
-    doc.line(30, 54, 180, 54);
+    // Badge icon
+    const icon = r.pct >= 90 ? '★ LEYENDA' : r.pct >= 70 ? '◆ EXCELENTE' : r.pct >= 50 ? '● APROBADO' : '○ INTENTO';
+    doc.setFontSize(13); doc.setTextColor(255, 215, 0);
+    doc.text(icon, cx, 46, { align:'center' });
 
-    // Body
-    doc.setFontSize(11); doc.setTextColor(180,200,220);
-    doc.text("Este certificado acredita que:", 30, 68);
-    doc.setFontSize(24); doc.setTextColor(255,215,0);
-    doc.text(r.estudiante.toUpperCase(), 105, 82, { align:"center" });
-    doc.setFontSize(10); doc.setTextColor(200,220,240);
-    doc.text(`Curso: ${r.curso}`, 105, 92, { align:"center" });
+    // Student card
+    doc.setFillColor(16, 29, 51);
+    doc.roundedRect(15, 52, 180, 70, 4, 4, 'F');
+    doc.setDrawColor(0, 200, 255); doc.setLineWidth(0.4);
+    doc.roundedRect(15, 52, 180, 70, 4, 4, 'S');
 
-    // Result box
-    doc.setFillColor(12, 24, 41);
-    doc.setDrawColor(0,200,255); doc.setLineWidth(0.8);
-    doc.roundedRect(28, 100, 154, 72, 4, 4, 'FD');
+    const field = (label, val, y) => {
+      doc.setFontSize(8); doc.setTextColor(120, 145, 180); doc.setFont('helvetica','normal');
+      doc.text(label.toUpperCase(), 25, y);
+      doc.setFontSize(11); doc.setTextColor(255,255,255); doc.setFont('helvetica','bold');
+      doc.text(String(val), 25, y+6);
+    };
 
-    doc.setFontSize(9); doc.setTextColor(0,200,255);
-    doc.text("RESULTADO OFICIAL DE EVALUACIÓN", 105, 110, { align:"center" });
-    doc.setDrawColor(0,200,255,0.3); doc.setLineWidth(0.3);
-    doc.line(28, 114, 182, 114);
+    field('Estudiante',  u.nombre_completo, 62);
+    field('Curso',       u.curso,           78);
+    field('Cuestionario',q.nombre,          94);
+    field('Fecha',       Utils.today(),     110);
 
-    doc.setFontSize(11); doc.setTextColor(255,255,255);
-    doc.text(`Cuestionario:`, 36, 124);
-    doc.setTextColor(0,200,255); doc.text(r.cuestionario, 80, 124);
+    // Score panel
+    doc.setFillColor(16, 29, 51);
+    doc.roundedRect(15, 130, 55, 40, 4, 4, 'F');
+    doc.setDrawColor(255,215,0); doc.roundedRect(15,130,55,40,4,4,'S');
+    doc.setFontSize(7); doc.setTextColor(120,145,180); doc.setFont('helvetica','normal');
+    doc.text('PUNTAJE FINAL', 42, 140, {align:'center'});
+    doc.setFontSize(26); doc.setTextColor(255,215,0); doc.setFont('helvetica','bold');
+    doc.text(String(r.puntajeFinal), 42, 158, {align:'center'});
 
-    doc.setTextColor(255,255,255); doc.text(`Puntaje Final:`, 36, 134);
-    doc.setTextColor(255,215,0);   doc.text(`${r.puntaje} Pts  (Base: ${r.maximoBase})`, 80, 134);
+    doc.setFillColor(16,29,51);
+    doc.roundedRect(77,130,55,40,4,4,'F');
+    doc.setDrawColor(0,200,255); doc.roundedRect(77,130,55,40,4,4,'S');
+    doc.setFontSize(7); doc.setTextColor(120,145,180); doc.setFont('helvetica','normal');
+    doc.text('PORCENTAJE', 104, 140, {align:'center'});
+    doc.setFontSize(26); doc.setTextColor(0,200,255); doc.setFont('helvetica','bold');
+    doc.text(r.pct+'%', 104, 158, {align:'center'});
 
-    doc.setTextColor(255,255,255); doc.text(`Rendimiento:`, 36, 144);
-    doc.setTextColor(0,255,153);   doc.text(`${r.porcentaje}% de efectividad`, 80, 144);
+    doc.setFillColor(16,29,51);
+    doc.roundedRect(139,130,56,40,4,4,'F');
+    doc.setDrawColor(0,255,153); doc.roundedRect(139,130,56,40,4,4,'S');
+    doc.setFontSize(7); doc.setTextColor(120,145,180); doc.setFont('helvetica','normal');
+    doc.text('TIEMPO', 167, 140, {align:'center'});
+    doc.setFontSize(14); doc.setTextColor(0,255,153); doc.setFont('helvetica','bold');
+    doc.text(r.timeStr, 167, 158, {align:'center'});
 
-    doc.setTextColor(255,255,255); doc.text(`Tiempo:`, 36, 154);
-    doc.setTextColor(255,255,255); doc.text(`${r.tiempo} minutos`, 80, 154);
-
-    doc.setTextColor(255,255,255); doc.text(`Intento Nro:`, 36, 164);
-    doc.setTextColor(255,255,255); doc.text(`${r.intento} / 3`, 80, 164);
+    // Detail rows
+    const rows = [
+      ['Respuestas Correctas', `${r.correct} / ${r.total}`],
+      ['Puntaje Base',         String(r.puntajeBase)],
+      ['Bonificación Velocidad', `+${r.bonus}`],
+      ['Intento',              `${r.intento} de 3`],
+    ];
+    let ry = 183;
+    rows.forEach(([lbl, val]) => {
+      doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(120,145,180);
+      doc.text(lbl, 25, ry);
+      doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+      doc.text(val, 185, ry, {align:'right'});
+      doc.setDrawColor(30,50,80); doc.setLineWidth(0.2);
+      doc.line(25, ry+3, 185, ry+3);
+      ry += 12;
+    });
 
     // Footer
-    doc.setFontSize(8); doc.setTextColor(80,100,130);
-    doc.text(`Emitido el ${r.fecha} · Quiz Legends v2.0 · Kabert Studio – LMKE`, 105, 272, { align:"center" });
+    doc.setFillColor(0,200,255);
+    doc.rect(0,282,210,15,'F');
+    doc.setFontSize(8); doc.setTextColor(8,17,31); doc.setFont('helvetica','bold');
+    doc.text('"Conquista el conocimiento. Rompe récords. Conviértate en leyenda."', cx, 291, {align:'center'});
 
-    doc.save(`QuizLegends_${r.estudiante.replace(/\s+/g,'_')}_${r.fecha.replace(/\//g,'-')}.pdf`);
-});
+    const fname = `QuizLegends_${u.usuario}_${q.nombre.replace(/\s+/g,'_')}.pdf`;
+    doc.save(fname);
+    Audio.click();
+  },
+};
 
-document.getElementById('btn-result-close').addEventListener('click', () => {
-    AudioEngine.btn();
-    loadStudentDashboard();
-});
+// Helper para screen activa
+App._activeScreen = () => {
+  const el = document.querySelector('.screen.active');
+  return el ? el.id : null;
+};
 
-// ── ADMIN: ACCESS ─────────────────────────────────────────────
-document.getElementById('secret-admin-trigger').addEventListener('click', () => {
-    AudioEngine.btn();
-    const clave = prompt("🔒 Clave de acceso:");
-    if (clave === "LMKE2026") {
-        resetEditorState();
-        switchView('view-admin');
-        loadAdminQuizzes();
-        AudioEngine.achievement();
-    } else {
-        AudioEngine.error();
-        Toast.error('Acceso denegado.');
-    }
-});
-
-document.getElementById('btn-admin-close').addEventListener('click', () => {
-    AudioEngine.btn();
-    if (currentUser) loadStudentDashboard(); else switchView('view-ranking');
-});
-
-// ─────────────────────────────────────────────────────────────
-// ██████  QUESTION EDITOR ENGINE  ██████
-// ─────────────────────────────────────────────────────────────
-
-function resetEditorState() {
-    editorQuestions = [];
-    renderEditorCards();
-    updateEditorStats();
-    document.getElementById('btn-save-quiz').disabled = true;
-}
-
-// ── IMPORT ZONE: Drag & Drop + File picker ────────────────────
-const dropZone = document.getElementById('import-drop-zone');
-const filePicker = document.getElementById('quiz-file-txt');
-
-dropZone.addEventListener('dragover', e => {
-    e.preventDefault();
-    dropZone.classList.add('drag-over');
-});
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if (file?.name.endsWith('.txt')) processFile(file);
-    else Toast.warn('Solo se aceptan archivos .TXT');
-});
-
-filePicker.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (file) processFile(file);
-    e.target.value = '';
-});
-
-function processFile(file) {
-    const reader = new FileReader();
-    reader.onload = evt => {
-        const parsed = parseTXT(evt.target.result);
-        if (parsed.length === 0) {
-            Toast.warn('No se detectaron preguntas en el archivo. Verifica el formato.');
-            return;
-        }
-        editorQuestions = parsed;
-        renderEditorCards();
-        updateEditorStats();
-        AudioEngine.achievement();
-        Toast.success(`${parsed.length} preguntas importadas correctamente.`);
-    };
-    reader.readAsText(file, 'UTF-8');
-}
-
-// ── TXT PARSER ────────────────────────────────────────────────
-function parseTXT(text) {
-    const result = [];
-    const lines  = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    let current  = null;
-
-    lines.forEach(line => {
-        if (!line.match(/^[A-D]\)/i)) {
-            // New question line
-            if (current) result.push(current);
-            current = { pregunta: line, opciones: ['','','',''], correcta: 0 };
-        } else if (current && line.match(/^[A-D]\)/i)) {
-            const letterIdx = ['A','B','C','D'].indexOf(line[0].toUpperCase());
-            if (letterIdx === -1) return;
-            const isCorrect = line.trimEnd().toUpperCase().endsWith(' R') || line.trimEnd().toUpperCase().endsWith('R');
-            let cleanOpt    = line.substring(2).trim();
-            if (isCorrect) {
-                cleanOpt = cleanOpt.replace(/\s*R\s*$/i, '').trim();
-                current.correcta = letterIdx;
-            }
-            current.opciones[letterIdx] = cleanOpt;
-        }
-    });
-    if (current) result.push(current);
-    return result;
-}
-
-// ── RENDER EDITOR CARDS ───────────────────────────────────────
-function renderEditorCards() {
-    const container = document.getElementById('questions-editor-container');
-    const emptyEl   = document.getElementById('editor-empty-state');
-
-    if (editorQuestions.length === 0) {
-        container.innerHTML = '';
-        container.appendChild(emptyEl);
-        emptyEl.style.display = '';
-        return;
-    }
-    emptyEl.style.display = 'none';
-    container.innerHTML   = '';
-
-    editorQuestions.forEach((q, idx) => {
-        const card = buildQuestionCard(q, idx);
-        container.appendChild(card);
-    });
-}
-
-const LETTERS = ['A','B','C','D'];
-
-function buildQuestionCard(q, idx) {
-    const card = document.createElement('div');
-    card.className  = 'q-editor-card';
-    card.dataset.idx = idx;
-
-    // ── Header (question text) ──
-    const header = document.createElement('div');
-    header.className = 'q-card-header';
-
-    const numBadge = document.createElement('span');
-    numBadge.className   = 'q-num-badge';
-    numBadge.textContent = `Q${idx + 1}`;
-
-    const questionInput = document.createElement('input');
-    questionInput.type        = 'text';
-    questionInput.value       = q.pregunta;
-    questionInput.placeholder = '¿Escribe la pregunta aquí?';
-    questionInput.addEventListener('input', e => {
-        editorQuestions[idx].pregunta = e.target.value;
-        validateCard(card, idx);
-        updateEditorStats();
-    });
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'q-card-delete';
-    deleteBtn.title     = 'Eliminar pregunta';
-    deleteBtn.innerHTML = '✕';
-    deleteBtn.addEventListener('click', () => {
-        AudioEngine.btn();
-        editorQuestions.splice(idx, 1);
-        renderEditorCards();
-        updateEditorStats();
-    });
-
-    header.append(numBadge, questionInput, deleteBtn);
-
-    // ── Options ──
-    const optContainer = document.createElement('div');
-    optContainer.className = 'q-card-options';
-
-    q.opciones.forEach((opt, oIdx) => {
-        const row = document.createElement('div');
-        row.className = 'q-option-row';
-
-        const letterLabel = document.createElement('span');
-        letterLabel.className   = 'q-option-letter';
-        letterLabel.textContent = LETTERS[oIdx];
-
-        const optInput = document.createElement('input');
-        optInput.type        = 'text';
-        optInput.className   = `q-option-input${oIdx === q.correcta ? ' is-correct' : ''}`;
-        optInput.value       = opt;
-        optInput.placeholder = `Opción ${LETTERS[oIdx]}`;
-        optInput.addEventListener('input', e => {
-            editorQuestions[idx].opciones[oIdx] = e.target.value;
-            validateCard(card, idx);
-            updateEditorStats();
-        });
-
-        const radio = document.createElement('input');
-        radio.type    = 'radio';
-        radio.name    = `correct-${idx}`;
-        radio.className = 'q-correct-radio';
-        radio.checked = oIdx === q.correcta;
-        radio.title   = 'Marcar como correcta';
-        radio.addEventListener('change', () => {
-            if (radio.checked) {
-                editorQuestions[idx].correcta = oIdx;
-                // Update visual state of all inputs in this card
-                card.querySelectorAll('.q-option-input').forEach((el, i) => {
-                    el.classList.toggle('is-correct', i === oIdx);
-                });
-                validateCard(card, idx);
-                updateEditorStats();
-            }
-        });
-
-        row.append(letterLabel, optInput, radio);
-        optContainer.appendChild(row);
-    });
-
-    card.append(header, optContainer);
-    validateCard(card, idx);
-    return card;
-}
-
-function validateCard(card, idx) {
-    const q = editorQuestions[idx];
-    const hasQuestion = q.pregunta.trim().length > 0;
-    const filledOpts  = q.opciones.filter(o => o.trim().length > 0);
-    const valid       = hasQuestion && filledOpts.length >= 2;
-
-    card.classList.toggle('has-error',  !valid);
-    card.classList.toggle('is-complete', valid);
-}
-
-// ── UPDATE STATS BADGE ────────────────────────────────────────
-function updateEditorStats() {
-    const total     = editorQuestions.length;
-    const complete  = editorQuestions.filter(q =>
-        q.pregunta.trim() && q.opciones.filter(o => o.trim()).length >= 2
-    ).length;
-    const errors    = total - complete;
-
-    document.getElementById('q-count-num').textContent = total;
-
-    const statusEl = document.getElementById('q-status-badge');
-    if (total === 0) {
-        statusEl.textContent  = '';
-        statusEl.className    = 'q-status';
-    } else if (errors === 0) {
-        statusEl.textContent  = `✓ ${total} listas`;
-        statusEl.className    = 'q-status ok';
-    } else if (complete > 0) {
-        statusEl.textContent  = `⚠ ${errors} incompletas`;
-        statusEl.className    = 'q-status warn';
-    } else {
-        statusEl.textContent  = `✕ Todas incompletas`;
-        statusEl.className    = 'q-status error';
-    }
-
-    document.getElementById('btn-save-quiz').disabled = (total === 0 || errors > 0);
-}
-
-// ── ADD BLANK QUESTION ────────────────────────────────────────
-document.getElementById('btn-add-question').addEventListener('click', () => {
-    AudioEngine.btn();
-    editorQuestions.push({ pregunta: '', opciones: ['','','',''], correcta: 0 });
-    renderEditorCards();
-    updateEditorStats();
-    // Scroll to bottom of editor
-    const c = document.getElementById('questions-editor-container');
-    c.scrollTop = c.scrollHeight;
-    // Focus the new question input
-    const cards = c.querySelectorAll('.q-card-header input');
-    if (cards.length) cards[cards.length - 1].focus();
-});
-
-// ── CLEAR EDITOR ──────────────────────────────────────────────
-document.getElementById('btn-clear-editor').addEventListener('click', async () => {
-    if (editorQuestions.length === 0) return;
-    AudioEngine.btn();
-    const confirmed = await Modal.show('Limpiar Editor', '¿Eliminar todas las preguntas del editor?', 'Limpiar todo');
-    if (confirmed) {
-        AudioEngine.error();
-        resetEditorState();
-        Toast.info('Editor limpiado.');
-    }
-});
-
-// ── SAVE QUIZ ─────────────────────────────────────────────────
-document.getElementById('quiz-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    AudioEngine.btn();
-
-    const complete = editorQuestions.filter(q =>
-        q.pregunta.trim() && q.opciones.filter(o => o.trim()).length >= 2
-    ).length;
-
-    if (complete === 0) {
-        Toast.error('Agrega al menos una pregunta completa antes de guardar.');
-        return;
-    }
-    if (complete < editorQuestions.length) {
-        const ok = await Modal.show(
-            'Preguntas incompletas',
-            `${editorQuestions.length - complete} pregunta(s) están incompletas y serán descartadas. ¿Continuar?`,
-            'Continuar'
-        );
-        if (!ok) return;
-    }
-
-    const finalQuestions = editorQuestions.filter(q =>
-        q.pregunta.trim() && q.opciones.filter(o => o.trim()).length >= 2
-    );
-
-    const id              = document.getElementById('quiz-id').value || `quiz_${Date.now()}`;
-    const nombre          = document.getElementById('quiz-name').value.trim();
-    const cursoDestinatario = document.getElementById('quiz-curso').value;
-    const puntajeMaximo   = parseInt(document.getElementById('quiz-max-score').value);
-    const tiempoIdeal     = parseInt(document.getElementById('quiz-ideal-time').value);
-
-    const btn = document.getElementById('btn-save-quiz');
-    btn.disabled = true; btn.textContent = 'Sincronizando…';
-
-    const { error } = await supabase.from('cuestionarios').upsert([{
-        id, nombre, curso_destinatario: cursoDestinatario,
-        puntaje_maximo: puntajeMaximo, tiempo_ideal: tiempoIdeal,
-        preguntas: finalQuestions
-    }]);
-
-    btn.disabled = false; btn.innerHTML = 'SINCRONIZAR CON SUPABASE <span class="btn-arrow">↑</span>';
-
-    if (error) {
-        AudioEngine.error();
-        Toast.error('Error al sincronizar. Intenta de nuevo.');
-        return;
-    }
-
-    AudioEngine.achievement();
-    Toast.success(`"${nombre}" guardado con ${finalQuestions.length} preguntas.`);
-    document.getElementById('quiz-form').reset();
-    document.getElementById('quiz-id').value = '';
-    resetEditorState();
-    loadAdminQuizzes();
-});
-
-// ── LOAD ADMIN QUIZZES ────────────────────────────────────────
-async function loadAdminQuizzes() {
-    const container = document.getElementById('admin-quizzes-list');
-    container.innerHTML = '<p style="color:rgba(255,255,255,0.3);font-size:.85rem;padding:10px">Cargando…</p>';
+/* ============================================================
+   ── RANKING ──
+   ============================================================ */
+const Ranking = {
+  load: async () => {
+    const el = document.getElementById('rankingTable');
+    el.innerHTML = '<p style="color:var(--muted);font-size:.9rem;padding:1rem">Cargando...</p>';
 
     try {
-        const { data: quizzes } = await supabase.from('cuestionarios').select('*');
-        container.innerHTML = '';
+      const { data } = await db.from('records')
+        .select('nombre_completo, curso, cuestionario_nombre, mejor_puntaje, mejor_tiempo, cantidad_intentos')
+        .order('mejor_puntaje', { ascending: false })
+        .limit(20);
 
-        if (!quizzes?.length) {
-            container.innerHTML = '<p style="color:rgba(255,255,255,0.25);font-size:.85rem;padding:10px;text-align:center">No hay cuestionarios guardados.</p>';
-            return;
-        }
+      if (!data || !data.length) {
+        el.innerHTML = '<p style="color:var(--muted);font-size:.9rem;padding:1rem">Aún no hay récords.</p>';
+        return;
+      }
 
-        quizzes.forEach(quiz => {
-            const div = document.createElement('div');
-            div.className = 'admin-list-item';
-            div.innerHTML = `
-                <div>
-                    <b>${quiz.nombre}</b>
-                    <div class="quiz-course-tag">📚 ${quiz.curso_destinatario} · ${(quiz.preguntas||[]).length} preguntas</div>
-                </div>
-                <div class="admin-list-actions">
-                    <button class="btn btn-sm btn-secondary" id="edit-${quiz.id}" title="Editar">✏️</button>
-                    <button class="btn btn-sm btn-danger"    id="del-${quiz.id}"  title="Eliminar">🗑</button>
-                </div>
-            `;
-            container.appendChild(div);
+      // Sort: mayor puntaje → menor tiempo
+      data.sort((a,b)=> {
+        if (b.mejor_puntaje !== a.mejor_puntaje) return b.mejor_puntaje - a.mejor_puntaje;
+        const ta = Utils.secsFromStr(a.mejor_tiempo||'99:99:99');
+        const tb = Utils.secsFromStr(b.mejor_tiempo||'99:99:99');
+        return ta - tb;
+      });
 
-            document.getElementById(`edit-${quiz.id}`).addEventListener('click', () => {
-                AudioEngine.btn();
-                document.getElementById('quiz-id').value        = quiz.id;
-                document.getElementById('quiz-name').value      = quiz.nombre;
-                document.getElementById('quiz-curso').value     = quiz.curso_destinatario;
-                document.getElementById('quiz-max-score').value = quiz.puntaje_maximo;
-                document.getElementById('quiz-ideal-time').value= quiz.tiempo_ideal;
-                editorQuestions = (quiz.preguntas || []).map(q => ({
-                    pregunta: q.pregunta || '',
-                    opciones: (q.opciones || ['','','','']).concat(['','','','']).slice(0,4),
-                    correcta: q.correcta || 0
-                }));
-                renderEditorCards();
-                updateEditorStats();
-                AudioEngine.achievement();
-                Toast.info(`Editando: "${quiz.nombre}"`);
-                // Scroll to form
-                document.getElementById('quiz-form').scrollIntoView({ behavior: 'smooth' });
-            });
+      const posClass = i => i===0?'gold':i===1?'silver':i===2?'bronze':'';
 
-            document.getElementById(`del-${quiz.id}`).addEventListener('click', async () => {
-                AudioEngine.btn();
-                const ok = await Modal.show('Eliminar Cuestionario', `¿Eliminar permanentemente "${quiz.nombre}"?`, 'Eliminar');
-                if (ok) {
-                    await supabase.from('cuestionarios').delete().eq('id', quiz.id);
-                    AudioEngine.error();
-                    Toast.warn(`"${quiz.nombre}" eliminado.`);
-                    loadAdminQuizzes();
-                }
-            });
-        });
-    } catch(e) { console.error(e); }
-}
-
-// ── RESET RANKING ─────────────────────────────────────────────
-document.getElementById('btn-reset-ranking-global').addEventListener('click', async () => {
-    AudioEngine.btn();
-    const ok = await Modal.show('⚠️ Reiniciar Ranking', 'Esta acción eliminará TODOS los registros del ranking global. Es irreversible.', '🔥 Reiniciar todo');
-    if (ok) {
-        await supabase.from('records').delete().neq('id', 'void');
-        AudioEngine.error();
-        Toast.success('Ranking global purgado.');
-        loadRankingGlobal();
+      el.innerHTML = `<table>
+        <thead><tr>
+          <th>#</th><th>Nombre</th><th>Curso</th><th>Cuestionario</th>
+          <th>Puntaje</th><th>Tiempo</th><th>Intentos</th>
+        </tr></thead>
+        <tbody>${data.map((r,i)=>`<tr>
+          <td><span class="rank-pos ${posClass(i)}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</span></td>
+          <td>${r.nombre_completo}</td>
+          <td style="font-size:.78rem;color:var(--muted)">${r.curso}</td>
+          <td style="font-size:.78rem">${r.cuestionario_nombre||''}</td>
+          <td><span class="rank-score">${r.mejor_puntaje}</span></td>
+          <td style="font-family:var(--font-hud);font-size:.78rem;color:var(--green)">${r.mejor_tiempo||'--'}</td>
+          <td style="color:var(--muted)">${r.cantidad_intentos}</td>
+        </tr>`).join('')}
+        </tbody></table>`;
+    } catch(e) {
+      el.innerHTML = '<p style="color:var(--red);font-size:.9rem;padding:1rem">Error al cargar ranking.</p>';
     }
-});
+  },
+};
 
-// ── BOOT ──────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => { try { initSplashScreen(); } catch(e) { console.error(e); } }, 80);
+/* ============================================================
+   ── PROFILE ──
+   ============================================================ */
+const Profile = {
+  load: async () => {
+    const el = document.getElementById('profileContent');
+    if (!State.user) return;
+    try {
+      const { data } = await db.from('records')
+        .select('mejor_puntaje, mejor_tiempo, puntaje_final, porcentaje, cuestionario_nombre')
+        .eq('usuario', State.user.usuario);
+
+      const records = data || [];
+      const totalQ  = records.length;
+      const totalPts = records.reduce((s,r)=>s+(r.puntaje_final||0),0);
+      const bestScore = records.reduce((m,r)=>Math.max(m,r.mejor_puntaje||0),0);
+      const bestTime  = records.map(r=>r.mejor_tiempo).filter(Boolean)
+        .sort((a,b)=>Utils.secsFromStr(a)-Utils.secsFromStr(b))[0]||'--';
+      const avg = totalQ ? Math.round(records.reduce((s,r)=>s+(r.porcentaje||0),0)/totalQ) : 0;
+
+      const rows = [
+        ['Nombre',          State.user.nombre_completo],
+        ['Curso',           State.user.curso],
+        ['Usuario',         State.user.usuario],
+        ['Cuestionarios',   totalQ],
+        ['Total Puntos',    totalPts],
+        ['Mejor Puntaje',   bestScore],
+        ['Mejor Tiempo',    bestTime],
+        ['Promedio',        avg+'%'],
+      ];
+
+      el.innerHTML = rows.map(([l,v])=>`
+        <div class="p-row"><span class="p-lbl">${l}</span><span class="p-val">${v}</span></div>
+      `).join('');
+    } catch(e) {
+      el.innerHTML = '<p style="color:var(--muted)">Error al cargar perfil.</p>';
+    }
+  },
+};
+
+/* ============================================================
+   ── HISTORY ──
+   ============================================================ */
+const History = {
+  load: async () => {
+    const el = document.getElementById('historyContent');
+    if (!State.user) return;
+    try {
+      const { data } = await db.from('records')
+        .select('cuestionario_nombre, mejor_puntaje, puntaje_final, porcentaje, mejor_tiempo, tiempo_empleado, cantidad_intentos')
+        .eq('usuario', State.user.usuario)
+        .order('puntaje_final', { ascending: false });
+
+      if (!data||!data.length) {
+        el.innerHTML = '<p style="color:var(--muted);padding:1rem">Aún no tienes historial.</p>'; return;
+      }
+
+      el.innerHTML = `<table>
+        <thead><tr>
+          <th>Cuestionario</th><th>Mejor Pts</th><th>Último Pts</th>
+          <th>%</th><th>Mejor Tiempo</th><th>Intentos</th>
+        </tr></thead>
+        <tbody>${data.map(r=>`<tr>
+          <td>${r.cuestionario_nombre}</td>
+          <td style="color:var(--gold);font-weight:700">${r.mejor_puntaje}</td>
+          <td>${r.puntaje_final}</td>
+          <td style="color:var(--cyan)">${r.porcentaje}%</td>
+          <td style="font-family:var(--font-hud);font-size:.78rem;color:var(--green)">${r.mejor_tiempo||'--'}</td>
+          <td style="color:var(--muted)">${r.cantidad_intentos}</td>
+        </tr>`).join('')}
+        </tbody></table>`;
+    } catch(e) {
+      el.innerHTML = '<p style="color:var(--red);padding:1rem">Error al cargar historial.</p>';
+    }
+  },
+};
+
+/* ============================================================
+   ── ADMIN ──
+   ============================================================ */
+const Admin = {
+  _currentTab: 'quizzes',
+  _importedQuestions: null,
+  _editingId: null,
+
+  requestAccess: () => {
+    const key = prompt('🔐 Clave Maestra:');
+    if (key === ADMIN_KEY) {
+      App.openModal('modalAdmin');
+      Admin.tab('quizzes');
+    } else if (key !== null) {
+      alert('Clave incorrecta.');
+    }
+  },
+
+  tab: (name) => {
+    Admin._currentTab = name;
+    document.querySelectorAll('.tab-btn').forEach((b,i)=>{
+      const tabs = ['quizzes','create','import','stats'];
+      b.classList.toggle('active', tabs[i]===name);
+    });
+    const el = document.getElementById('adminContent');
+
+    switch(name) {
+      case 'quizzes': Admin.renderQuizList(); break;
+      case 'create':  Admin.renderCreateForm(); break;
+      case 'import':  Admin.renderImporter(); break;
+      case 'stats':   Admin.renderStats(); break;
+    }
+  },
+
+  renderQuizList: async () => {
+    const el = document.getElementById('adminContent');
+    el.innerHTML = '<p style="color:var(--muted);font-size:.9rem">Cargando...</p>';
+    try {
+      const { data } = await db.from('cuestionarios')
+        .select('id, nombre, curso_destinatario, puntaje_maximo, preguntas');
+      el.innerHTML = (data||[]).map(q=>`
+        <div class="admin-quiz-row">
+          <div>
+            <div class="aqr-name">${q.nombre}</div>
+            <div class="aqr-sub">${q.curso_destinatario} · ${(q.preguntas||[]).length} preguntas · Máx ${q.puntaje_maximo} pts</div>
+          </div>
+          <div class="aqr-actions">
+            <button class="btn-xs edit" onclick="Admin.editQuiz('${q.id}')">✏️ Editar</button>
+            <button class="btn-xs del" onclick="Admin.deleteQuiz('${q.id}','${q.nombre.replace(/'/g,"\\'")}')">🗑️</button>
+          </div>
+        </div>`).join('') || '<p style="color:var(--muted)">No hay cuestionarios.</p>';
+    } catch(e) {
+      el.innerHTML = '<p style="color:var(--red)">Error al cargar.</p>';
+    }
+  },
+
+  renderCreateForm: () => {
+    Admin._editingId = null;
+    Admin._importedQuestions = [{ pregunta:'', opciones:['','','',''], correcta:0 }];
+    App.openModal('modalEditor');
+    Admin.renderEditor('Nuevo Cuestionario');
+  },
+
+  renderImporter: () => {
+    const el = document.getElementById('adminContent');
+    el.innerHTML = `
+      <p style="color:var(--muted);font-size:.85rem;margin-bottom:.75rem">
+        Formato esperado: pregunta numerada, opciones A/B/C/D, marca <b style="color:var(--green)">R</b> en la correcta.
+      </p>
+      <div class="form-group">
+        <label>Archivo TXT</label>
+        <input type="file" id="importFile" accept=".txt" style="color:var(--text)" onchange="Admin.parseTXT()" />
+      </div>
+      <div id="importPreview"></div>
+      <button id="importGoBtn" class="btn btn-primary hidden" onclick="Admin.openEditorFromImport()">✏️ Editar Preguntas</button>
+    `;
+  },
+
+  parseTXT: () => {
+    const file = document.getElementById('importFile').files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => Admin.analyzeText(e.target.result);
+    reader.readAsText(file, 'utf-8');
+  },
+
+  analyzeText: (text) => {
+    const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+    const questions = [];
+    const warnings  = [];
+
+    let current = null;
+    lines.forEach(line => {
+      // Detect question line: starts with number + dot/parenthesis
+      const qMatch = line.match(/^\d+[\.\)]\s+(.+)/);
+      if (qMatch) {
+        if (current) questions.push(current);
+        current = { pregunta: qMatch[1], opciones: [], correcta: -1 };
+        return;
+      }
+      // Detect option line: A) B) C) D) with optional R
+      const opMatch = line.match(/^([A-D])\)\s+(.+?)(\s+R\s*)?$/i);
+      if (opMatch && current) {
+        const text = opMatch[2].trim();
+        const isCorrect = !!opMatch[3];
+        if (isCorrect) {
+          if (current.correcta !== -1) {
+            warnings.push(`⚠️ Pregunta ${questions.length+1} tiene más de una respuesta correcta.`);
+          }
+          current.correcta = current.opciones.length;
+        }
+        current.opciones.push(text);
+      }
+    });
+    if (current) questions.push(current);
+
+    // Validate
+    questions.forEach((q, i) => {
+      if (q.correcta === -1) warnings.push(`⚠️ Pregunta ${i+1} sin respuesta correcta.`);
+      if (q.opciones.length < 4) warnings.push(`⚠️ Pregunta ${i+1} tiene menos de 4 opciones.`);
+      if (q.opciones.length > 4) warnings.push(`⚠️ Pregunta ${i+1} tiene más de 4 opciones.`);
+    });
+
+    const previewEl = document.getElementById('importPreview');
+    previewEl.innerHTML = `
+      <div class="import-preview">
+        <div class="import-stat">Preguntas detectadas: <span class="is-val">${questions.length}</span></div>
+        <div class="import-stat">Opciones detectadas: <span class="is-val">${questions.reduce((s,q)=>s+q.opciones.length,0)}</span></div>
+        <div class="import-stat">Respuestas correctas: <span class="is-val">${questions.filter(q=>q.correcta>=0).length}</span></div>
+        ${warnings.length ? `<div class="import-warnings">${warnings.join('<br>')}</div>` : ''}
+      </div>
+    `;
+
+    const btn = document.getElementById('importGoBtn');
+    if (warnings.length === 0 && questions.length > 0) {
+      btn.classList.remove('hidden');
+      Admin._importedQuestions = questions;
+    } else {
+      btn.classList.add('hidden');
+    }
+  },
+
+  openEditorFromImport: () => {
+    Admin._editingId = null;
+    App.closeModal('modalAdmin');
+    App.openModal('modalEditor');
+    Admin.renderEditor('Importar Cuestionario');
+  },
+
+  editQuiz: async (id) => {
+    try {
+      const { data } = await db.from('cuestionarios').select('*').eq('id', id).single();
+      Admin._editingId = id;
+      Admin._importedQuestions = data.preguntas || [];
+      Admin._editMeta = { nombre: data.nombre, curso: data.curso_destinatario, max: data.puntaje_maximo, tiempo: data.tiempo_ideal };
+      App.openModal('modalEditor');
+      Admin.renderEditor('Editar Cuestionario');
+    } catch(e) { alert('Error al cargar cuestionario.'); }
+  },
+
+  deleteQuiz: async (id, nombre) => {
+    if (!confirm(`¿Eliminar "${nombre}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      await db.from('cuestionarios').delete().eq('id', id);
+      Admin.renderQuizList();
+    } catch(e) { alert('Error al eliminar.'); }
+  },
+
+  renderEditor: (title) => {
+    const qs = Admin._importedQuestions || [];
+    const meta = Admin._editMeta || {};
+    const cursos = [
+      '1ro Primaria','2do Primaria','3ro Primaria','4to Primaria','5to Primaria','6to Primaria',
+      '1ro Secundaria','2do Secundaria','3ro Secundaria','4to Secundaria','5to Secundaria','6to Secundaria',
+    ];
+
+    document.getElementById('editorContent').innerHTML = `
+      <div class="editor-summary">
+        <b>${qs.length}</b> preguntas cargadas.
+        <button class="btn-xs edit" style="margin-left:1rem" onclick="Admin.addQuestion()">+ Nueva Pregunta</button>
+      </div>
+      <div class="editor-meta">
+        <div class="form-group">
+          <label>Nombre del Cuestionario</label>
+          <input class="qei-input" id="edName" value="${meta.nombre||''}" placeholder="Nombre..." />
+        </div>
+        <div class="form-group">
+          <label>Curso Destinatario</label>
+          <select class="qei-input" id="edCurso">
+            ${cursos.map(c=>`<option ${c===(meta.curso||'')?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Puntaje Máximo</label>
+          <input class="qei-input" id="edMax" type="number" value="${meta.max||100}" />
+        </div>
+        <div class="form-group">
+          <label>Tiempo Ideal (minutos)</label>
+          <input class="qei-input" id="edTime" type="number" value="${meta.tiempo||10}" />
+        </div>
+      </div>
+      <div id="qEditorList">${qs.map((q,i)=>Admin.questionHTML(q,i)).join('')}</div>
+    `;
+  },
+
+  questionHTML: (q, i) => {
+    const labels = ['A','B','C','D'];
+    return `<div class="q-editor-item" id="qei-${i}">
+      <div class="qei-header">
+        <span class="qei-num">Pregunta ${i+1}</span>
+        <div class="qei-actions">
+          <button class="btn-xs edit" onclick="Admin.dupQuestion(${i})">⧉ Duplicar</button>
+          <button class="btn-xs del"  onclick="Admin.delQuestion(${i})">🗑️</button>
+        </div>
+      </div>
+      <textarea class="qei-input" onchange="Admin.updateQ(${i},'p',this.value)">${q.pregunta}</textarea>
+      <div class="options-edit">
+        ${(q.opciones||['','','','']).map((op,j)=>`
+          <div class="opt-edit-row">
+            <input type="radio" class="opt-radio" name="correct-${i}" ${q.correcta===j?'checked':''}
+              onchange="Admin.updateQ(${i},'c',${j})" />
+            <span class="opt-lbl">${labels[j]})</span>
+            <input class="opt-edit-input" value="${op}" placeholder="Opción ${labels[j]}"
+              onchange="Admin.updateQ(${i},'o',{j:${j},v:this.value})" />
+          </div>`).join('')}
+      </div>
+    </div>`;
+  },
+
+  updateQ: (i, field, val) => {
+    const qs = Admin._importedQuestions;
+    if (!qs[i]) return;
+    if (field === 'p') qs[i].pregunta = val;
+    if (field === 'c') qs[i].correcta = val;
+    if (field === 'o') qs[i].opciones[val.j] = val.v;
+  },
+
+  addQuestion: () => {
+    if (!Admin._importedQuestions) Admin._importedQuestions = [];
+    Admin._importedQuestions.push({ pregunta:'', opciones:['','','',''], correcta:0 });
+    const i = Admin._importedQuestions.length - 1;
+    const list = document.getElementById('qEditorList');
+    list.insertAdjacentHTML('beforeend', Admin.questionHTML(Admin._importedQuestions[i], i));
+    document.getElementById('editorContent').querySelector('.editor-summary b').textContent =
+      Admin._importedQuestions.length;
+  },
+
+  dupQuestion: (i) => {
+    const q = JSON.parse(JSON.stringify(Admin._importedQuestions[i]));
+    Admin._importedQuestions.splice(i+1, 0, q);
+    Admin.renderEditor();
+  },
+
+  delQuestion: (i) => {
+    if (!confirm('¿Eliminar esta pregunta?')) return;
+    Admin._importedQuestions.splice(i, 1);
+    Admin.renderEditor();
+  },
+
+  saveQuiz: async () => {
+    const nombre = document.getElementById('edName').value.trim();
+    const curso  = document.getElementById('edCurso').value;
+    const max    = parseInt(document.getElementById('edMax').value) || 100;
+    const tiempo = parseInt(document.getElementById('edTime').value) || 10;
+    const qs     = Admin._importedQuestions || [];
+
+    if (!nombre)  { alert('Ingresa el nombre del cuestionario.'); return; }
+    if (!qs.length){ alert('El cuestionario debe tener al menos 1 pregunta.'); return; }
+
+    // Validate
+    const invalid = qs.filter(q=>!q.pregunta||q.opciones.some(o=>!o)||q.correcta<0||q.correcta>=q.opciones.length);
+    if (invalid.length) { alert('Hay preguntas incompletas. Revisa todas las preguntas y sus opciones.'); return; }
+
+    try {
+      if (Admin._editingId) {
+        await db.from('cuestionarios').update({
+          nombre, curso_destinatario:curso, puntaje_maximo:max, tiempo_ideal:tiempo, preguntas:qs
+        }).eq('id', Admin._editingId);
+      } else {
+        await db.from('cuestionarios').insert({
+          id: Utils.uid(), nombre, curso_destinatario:curso,
+          puntaje_maximo:max, tiempo_ideal:tiempo, preguntas:qs
+        });
+      }
+      App.closeModal('modalEditor');
+      App.openModal('modalAdmin');
+      Admin.tab('quizzes');
+      Audio.achieve();
+    } catch(e) {
+      alert('Error al guardar: ' + (e.message||'Intenta de nuevo.'));
+    }
+  },
+
+  renderStats: async () => {
+    const el = document.getElementById('adminContent');
+    el.innerHTML = '<p style="color:var(--muted);font-size:.9rem">Cargando...</p>';
+    try {
+      const [{ count: uCount }, { count: qCount }, { data: records }] = await Promise.all([
+        db.from('usuarios').select('*', { count:'exact', head:true }),
+        db.from('cuestionarios').select('*', { count:'exact', head:true }),
+        db.from('records').select('porcentaje, puntaje_final'),
+      ]);
+      const totalR   = (records||[]).length;
+      const avgScore = totalR ? Math.round((records||[]).reduce((s,r)=>s+(r.puntaje_final||0),0)/totalR) : 0;
+
+      el.innerHTML = `
+        <div class="stats-grid">
+          <div class="stats-chip"><span class="s-val">${uCount||0}</span><span class="s-lbl">Estudiantes</span></div>
+          <div class="stats-chip"><span class="s-val">${qCount||0}</span><span class="s-lbl">Cuestionarios</span></div>
+          <div class="stats-chip"><span class="s-val">${totalR}</span><span class="s-lbl">Evaluaciones realizadas</span></div>
+          <div class="stats-chip"><span class="s-val">${avgScore}</span><span class="s-lbl">Puntaje promedio</span></div>
+        </div>`;
+    } catch(e) {
+      el.innerHTML = '<p style="color:var(--red)">Error al cargar estadísticas.</p>';
+    }
+  },
+};
+
+/* ============================================================
+   ── INIT ──
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  Particles.init();
+  Auth.checkSession();
+
+  // Resume modal: re-show if needed
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) {
+      // handled in Quiz.onFullscreenChange
+    }
+  });
 });
-window.addEventListener('click', () => AudioEngine.init(), { once: true });

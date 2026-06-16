@@ -1,414 +1,259 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QUIZ LEGENDS — Conquista el Conocimiento</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Orbitron:wght@700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
-
-    <script type="module">
-        import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.8";
-        import { jsPDF } from "https://esm.sh/jspdf@2.5.1";
-        const SUPABASE_URL = "https://sdzovnnnzkctkjwnwzog.supabase.co";
-        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNkem92bm5uemtjdGtqd253em9nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NjA0NDAsImV4cCI6MjA5NzAzNjQ0MH0.pKs5KJjqI431dbxolREcCNkgXAOQ5pSAgFiKaApSLTs";
-        window.supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        window.jspPDF = { jsPDF };
-    </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quiz Legends</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- jsPDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
-<!-- BLOQUEADOR DE ORIENTACIÓN -->
-<div id="orientation-blocker" class="screen-overlay">
-    <div class="blocker-content">
-        <div class="phone-icon">📱</div>
-        <h2>MODO INCORRECTO</h2>
-        <p>Usa Quiz Legends en modo vertical.</p>
-    </div>
+<!-- ===================== PARTICLES CANVAS ===================== -->
+<canvas id="particles"></canvas>
+
+<!-- ===================== ORIENTATION BLOCK ===================== -->
+<div id="orientationBlock">
+  <div class="orient-inner">
+    <div class="orient-icon">📱</div>
+    <p>Por favor utiliza<br><strong>Quiz Legends</strong><br>en orientación <strong>vertical</strong>.</p>
+  </div>
 </div>
 
-<!-- SPLASH SCREEN -->
-<div id="splash-screen">
-    <canvas id="splash-canvas"></canvas>
-    <div class="splash-content">
-        <div class="splash-logo-wrap">
-            <div class="splash-glitch-container">
-                <h1 class="logo-title" data-text="QUIZ LEGENDS">QUIZ LEGENDS</h1>
-            </div>
-            <p class="splash-tagline">CONQUISTA EL CONOCIMIENTO · ROMPE RÉCORDS · SÉ UNA LEYENDA</p>
-        </div>
-        <div class="splash-countdown-wrap">
-            <div id="countdown-ring">
-                <svg class="countdown-svg" viewBox="0 0 120 120">
-                    <circle class="ring-bg" cx="60" cy="60" r="50"/>
-                    <circle class="ring-fill" id="ring-fill-el" cx="60" cy="60" r="50"/>
-                </svg>
-                <div id="countdown-box" class="countdown-num">3</div>
-            </div>
-        </div>
-        <div class="splash-footer">
-            <span class="splash-version">v2.0</span>
-            <span class="splash-author-badge">
-                <span class="dot"></span>Kabert Studio · LMKE
-            </span>
-        </div>
+<!-- ===================== SCREEN: LANDING ===================== -->
+<div id="screenLanding" class="screen active">
+  <div class="landing-center">
+    <div class="logo-glow">
+      <span class="logo-ql">QUIZ</span><span class="logo-leg">LEGENDS</span>
     </div>
+    <p class="slogan">"Conquista el conocimiento. Rompe récords. Conviértate en leyenda."</p>
+    <div class="landing-buttons">
+      <button class="btn btn-primary" onclick="App.showScreen('screenLogin')">⚡ Iniciar Sesión</button>
+      <button class="btn btn-secondary" onclick="App.showScreen('screenRegister')">🎮 Registrarse</button>
+      <button class="btn btn-outline" onclick="App.showRanking()">🏆 Ver Ranking</button>
+    </div>
+    <p class="brand-tag">Kabert Studio · LMKE</p>
+  </div>
 </div>
 
-<!-- APP PRINCIPAL -->
-<main id="main-container" class="hidden">
-
-    <!-- SCANLINE OVERLAY -->
-    <div class="scanline-overlay"></div>
-
-    <!-- NAVBAR -->
-    <header class="navbar">
-        <div class="nav-logo" id="nav-logo-btn">
-            <span class="nav-logo-icon">⬡</span>
-            <span class="nav-logo-text">QUIZ<span class="logo-accent">LEGENDS</span></span>
-        </div>
-        <nav class="nav-menu">
-            <button id="nav-ranking-btn" class="btn btn-nav">
-                <span class="btn-icon">🏆</span><span>Ranking</span>
-            </button>
-            <button id="nav-login-btn" class="btn btn-primary">Iniciar Sesión</button>
-            <button id="nav-register-btn" class="btn btn-secondary">Registrarse</button>
-            <span id="user-tag" class="user-tag hidden"></span>
-            <button id="nav-logout-btn" class="btn btn-danger hidden">Salir</button>
-        </nav>
-    </header>
-
-    <!-- RANKING -->
-    <section id="view-ranking" class="view-panel active">
-        <div class="view-panel-inner">
-            <div class="panel-header">
-                <div class="panel-header-icon">🏆</div>
-                <h2>TOP 20 LEYENDAS</h2>
-                <p>Los mejores puntajes globales de la plataforma</p>
-            </div>
-            <div class="table-container">
-                <table class="gamer-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Estudiante</th>
-                            <th>Curso</th>
-                            <th>Cuestionario</th>
-                            <th>Puntaje</th>
-                            <th>Tiempo</th>
-                            <th>Intentos</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ranking-tbody"></tbody>
-                </table>
-            </div>
-        </div>
-    </section>
-
-    <!-- REGISTRO -->
-    <section id="view-register" class="view-panel hidden">
-        <div class="auth-box">
-            <div class="auth-box-header">
-                <div class="auth-icon">📝</div>
-                <h2>CREAR CUENTA</h2>
-                <p>Únete al campo de batalla</p>
-            </div>
-            <form id="register-form" autocomplete="off">
-                <div class="form-group">
-                    <label>Nombre Completo</label>
-                    <input type="text" id="reg-nombre" required placeholder="Ej. Juan Pérez">
-                </div>
-                <div class="form-group">
-                    <label>Curso</label>
-                    <select id="reg-curso" required>
-                        <optgroup label="─── PRIMARIA ───">
-                            <option value="1ro Primaria">1ro Primaria</option>
-                            <option value="2do Primaria">2do Primaria</option>
-                            <option value="3ro Primaria">3ro Primaria</option>
-                            <option value="4to Primaria">4to Primaria</option>
-                            <option value="5to Primaria">5to Primaria</option>
-                            <option value="6to Primaria">6to Primaria</option>
-                        </optgroup>
-                        <optgroup label="─── SECUNDARIA ───">
-                            <option value="1ro Secundaria">1ro Secundaria</option>
-                            <option value="2do Secundaria">2do Secundaria</option>
-                            <option value="3ro Secundaria">3ro Secundaria</option>
-                            <option value="4to Secundaria">4to Secundaria</option>
-                            <option value="5to Secundaria">5to Secundaria</option>
-                            <option value="6to Secundaria">6to Secundaria</option>
-                        </optgroup>
-                    </select>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Usuario</label>
-                        <input type="text" id="reg-user" required placeholder="usuario123">
-                    </div>
-                    <div class="form-group">
-                        <label>Contraseña</label>
-                        <input type="password" id="reg-pass" required placeholder="••••••">
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-block btn-neon">
-                    <span>REGISTRARSE</span><span class="btn-arrow">→</span>
-                </button>
-                <p class="auth-switch">¿Ya tienes cuenta? <a href="#" id="go-login-link">Inicia sesión</a></p>
-            </form>
-        </div>
-    </section>
-
-    <!-- LOGIN -->
-    <section id="view-login" class="view-panel hidden">
-        <div class="auth-box">
-            <div class="auth-box-header">
-                <div class="auth-icon">🔑</div>
-                <h2>INICIAR SESIÓN</h2>
-                <p>Accede al sistema de combate</p>
-            </div>
-            <form id="login-form" autocomplete="off">
-                <div class="form-group">
-                    <label>Usuario</label>
-                    <input type="text" id="login-user" required placeholder="Tu usuario">
-                </div>
-                <div class="form-group">
-                    <label>Contraseña</label>
-                    <input type="password" id="login-pass" required placeholder="••••••">
-                </div>
-                <button type="submit" class="btn btn-block btn-neon">
-                    <span>INGRESAR AL SISTEMA</span><span class="btn-arrow">→</span>
-                </button>
-                <p class="auth-switch">¿Sin cuenta? <a href="#" id="go-register-link">Regístrate</a></p>
-            </form>
-        </div>
-    </section>
-
-    <!-- DASHBOARD ESTUDIANTE -->
-    <section id="view-student" class="view-panel hidden">
-        <div class="view-panel-inner">
-            <div class="student-layout">
-                <aside class="profile-card">
-                    <div class="profile-header">
-                        <div class="avatar-wrap">
-                            <div class="avatar-ring"></div>
-                            <div class="avatar">👤</div>
-                        </div>
-                        <h3 id="student-profile-name">Estudiante</h3>
-                        <span id="student-profile-course" class="badge">Curso</span>
-                    </div>
-                    <div class="stats-grid">
-                        <div class="stat-item">
-                            <span class="stat-val" id="stat-completed">0</span>
-                            <span class="stat-lbl">Quizzes</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-val" id="stat-points">0</span>
-                            <span class="stat-lbl">Pts Total</span>
-                        </div>
-                    </div>
-                    <div class="history-header">
-                        <h4>📋 Historial</h4>
-                    </div>
-                    <ul id="student-history-list" class="history-list"></ul>
-                </aside>
-
-                <div class="quizzes-section">
-                    <div class="section-title-row">
-                        <h2>🎯 TUS DESAFÍOS DISPONIBLES</h2>
-                    </div>
-                    <div id="quizzes-grid" class="quizzes-grid"></div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- QUIZ EN JUEGO -->
-    <section id="view-quiz-play" class="view-panel hidden">
-        <div class="quiz-container">
-            <header class="quiz-header">
-                <div class="quiz-info-meta">
-                    <h2 id="play-quiz-title">Cuestionario</h2>
-                    <span id="play-quiz-progress" class="badge-gamer">Pregunta 0/0</span>
-                </div>
-                <div class="quiz-timer-wrapper">
-                    <span class="timer-icon">⏱</span>
-                    <div class="quiz-timer" id="quiz-chronometer">00:00:00</div>
-                </div>
-            </header>
-            <div class="progress-bar-container">
-                <div id="quiz-progress-fill" class="progress-bar-fill"></div>
-            </div>
-            <div class="question-card" id="question-card">
-                <div class="question-number-tag" id="question-number-tag">Q1</div>
-                <h3 id="play-question-text" class="question-text">Cargando…</h3>
-                <div id="play-options-container" class="options-grid"></div>
-            </div>
-            <div class="quiz-footer-actions">
-                <button id="btn-force-exit-fullscreen" class="btn btn-danger btn-sm">🚪 Salir</button>
-            </div>
-        </div>
-    </section>
-
-    <!-- RESULTADOS -->
-    <section id="view-results" class="view-panel hidden">
-        <div class="results-box text-center">
-            <div id="confetti-wrapper"></div>
-            <div class="results-trophy">🏆</div>
-            <h1 class="text-gold final-title">¡EVALUACIÓN CONCLUIDA!</h1>
-            <p class="final-subtitle" id="result-quiz-name">Nombre del Cuestionario</p>
-            <div class="results-summary">
-                <div class="res-card">
-                    <span class="res-label">Puntaje Obtenido</span>
-                    <span class="res-value text-neon" id="res-score">0 / 0</span>
-                </div>
-                <div class="res-card">
-                    <span class="res-label">Porcentaje</span>
-                    <span class="res-value text-success" id="res-percent">0%</span>
-                </div>
-                <div class="res-card">
-                    <span class="res-label">Tiempo Empleado</span>
-                    <span class="res-value" id="res-time">00:00</span>
-                </div>
-                <div class="res-card">
-                    <span class="res-label">Bono de Velocidad</span>
-                    <span class="res-value text-gold" id="res-bonus">+0 Pts</span>
-                </div>
-            </div>
-            <div class="results-actions">
-                <button id="btn-download-pdf" class="btn btn-gold btn-lg">📄 Descargar Certificado PDF</button>
-                <button id="btn-result-close" class="btn btn-primary btn-lg">Volver al Panel</button>
-            </div>
-        </div>
-    </section>
-
-    <!-- PANEL ADMIN -->
-    <section id="view-admin" class="view-panel hidden">
-        <div class="view-panel-inner">
-            <div class="admin-container">
-                <header class="admin-header">
-                    <div class="admin-header-title">
-                        <span class="admin-icon">⚙️</span>
-                        <div>
-                            <h2>CONTROL DE COMANDO</h2>
-                            <p class="admin-subtitle">Panel Administrativo · Acceso Restringido</p>
-                        </div>
-                    </div>
-                    <button id="btn-admin-close" class="btn btn-secondary">← Volver</button>
-                </header>
-
-                <div class="admin-grid">
-                    <!-- COLUMNA IZQUIERDA: CONFIGURACIÓN + EDITOR -->
-                    <div class="admin-card">
-                        <h3>🛠 Configuración del Cuestionario</h3>
-                        <form id="quiz-form" autocomplete="off">
-                            <input type="hidden" id="quiz-id">
-                            <div class="form-group">
-                                <label>Nombre del Cuestionario</label>
-                                <input type="text" id="quiz-name" required placeholder="Ej. Instrumentos Autóctonos">
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Curso Destinatario</label>
-                                    <select id="quiz-curso" required>
-                                        <option value="1ro Primaria">1ro Primaria</option>
-                                        <option value="2do Primaria">2do Primaria</option>
-                                        <option value="3ro Primaria">3ro Primaria</option>
-                                        <option value="4to Primaria">4to Primaria</option>
-                                        <option value="5to Primaria">5to Primaria</option>
-                                        <option value="6to Primaria">6to Primaria</option>
-                                        <option value="1ro Secundaria">1ro Secundaria</option>
-                                        <option value="2do Secundaria">2do Secundaria</option>
-                                        <option value="3ro Secundaria">3ro Secundaria</option>
-                                        <option value="4to Secundaria">4to Secundaria</option>
-                                        <option value="5to Secundaria">5to Secundaria</option>
-                                        <option value="6to Secundaria">6to Secundaria</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Puntaje Base</label>
-                                    <input type="number" id="quiz-max-score" required value="45">
-                                </div>
-                                <div class="form-group">
-                                    <label>Tiempo Ideal (min)</label>
-                                    <input type="number" id="quiz-ideal-time" required value="10">
-                                </div>
-                            </div>
-
-                            <!-- ZONA DE IMPORTACIÓN TXT -->
-                            <div class="import-zone" id="import-drop-zone">
-                                <input type="file" id="quiz-file-txt" accept=".txt" class="import-file-input">
-                                <div class="import-zone-content">
-                                    <div class="import-icon">📂</div>
-                                    <p class="import-label">Arrastra tu archivo <strong>.TXT</strong> aquí o <span class="import-link">haz clic para seleccionar</span></p>
-                                    <p class="import-hint">Formato: Pregunta → A) B) C) D) con <code>R</code> al final de la correcta</p>
-                                </div>
-                            </div>
-
-                            <!-- CONTADOR Y ACCIONES -->
-                            <div class="editor-toolbar" id="editor-toolbar">
-                                <div class="editor-stats">
-                                    <span class="q-counter" id="detected-count-badge">
-                                        <span class="q-num" id="q-count-num">0</span>
-                                        <span class="q-label">preguntas detectadas</span>
-                                    </span>
-                                    <span class="q-status" id="q-status-badge"></span>
-                                </div>
-                                <div class="editor-actions">
-                                    <button type="button" id="btn-add-question" class="btn btn-sm btn-secondary">+ Agregar</button>
-                                    <button type="button" id="btn-clear-editor" class="btn btn-sm btn-danger">🗑 Limpiar</button>
-                                </div>
-                            </div>
-
-                            <!-- EDITOR DE TARJETAS -->
-                            <div id="questions-editor-container" class="questions-editor-container">
-                                <div class="editor-empty-state" id="editor-empty-state">
-                                    <span>📋</span>
-                                    <p>Carga un archivo .TXT o agrega preguntas manualmente</p>
-                                </div>
-                            </div>
-
-                            <button type="submit" class="btn btn-block btn-neon" id="btn-save-quiz" disabled>
-                                <span>SINCRONIZAR CON SUPABASE</span>
-                                <span class="btn-arrow">↑</span>
-                            </button>
-                        </form>
-                    </div>
-
-                    <!-- COLUMNA DERECHA: LISTA DE CUESTIONARIOS -->
-                    <div class="admin-card">
-                        <h3>📦 Cuestionarios en Servidor</h3>
-                        <div id="admin-quizzes-list" class="admin-list"></div>
-                        <hr class="divider">
-                        <h3 class="danger-title">⚠️ Zona de Peligro</h3>
-                        <button id="btn-reset-ranking-global" class="btn btn-danger btn-block">REINICIAR RANKING GLOBAL</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-</main>
-
-<!-- TOAST NOTIFICATION -->
-<div id="toast-container"></div>
-
-<!-- MODAL CONFIRM -->
-<div id="modal-overlay" class="modal-overlay hidden">
-    <div class="modal-box">
-        <h3 id="modal-title">Confirmar acción</h3>
-        <p id="modal-message">¿Estás seguro?</p>
-        <div class="modal-actions">
-            <button id="modal-cancel" class="btn">Cancelar</button>
-            <button id="modal-confirm" class="btn btn-danger">Confirmar</button>
-        </div>
+<!-- ===================== SCREEN: LOGIN ===================== -->
+<div id="screenLogin" class="screen">
+  <div class="card-panel">
+    <h2 class="panel-title">⚡ Iniciar Sesión</h2>
+    <div class="form-group">
+      <label>Usuario</label>
+      <input id="loginUser" type="text" placeholder="tu_usuario" autocomplete="username" />
     </div>
+    <div class="form-group">
+      <label>Contraseña</label>
+      <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" />
+    </div>
+    <div id="loginError" class="msg-error hidden"></div>
+    <button class="btn btn-primary full" onclick="Auth.login()">Entrar</button>
+    <button class="btn btn-ghost full mt" onclick="App.showScreen('screenLanding')">← Volver</button>
+  </div>
 </div>
 
-<button id="secret-admin-trigger" class="secret-trigger" title="Admin">⚙</button>
+<!-- ===================== SCREEN: REGISTER ===================== -->
+<div id="screenRegister" class="screen">
+  <div class="card-panel">
+    <h2 class="panel-title">🎮 Registro</h2>
+    <div class="form-group">
+      <label>Nombre Completo</label>
+      <input id="regName" type="text" placeholder="Tu nombre completo" />
+    </div>
+    <div class="form-group">
+      <label>Curso</label>
+      <select id="regCurso">
+        <option value="">— Seleccionar —</option>
+        <optgroup label="PRIMARIA">
+          <option>1ro Primaria</option><option>2do Primaria</option>
+          <option>3ro Primaria</option><option>4to Primaria</option>
+          <option>5to Primaria</option><option>6to Primaria</option>
+        </optgroup>
+        <optgroup label="SECUNDARIA">
+          <option>1ro Secundaria</option><option>2do Secundaria</option>
+          <option>3ro Secundaria</option><option>4to Secundaria</option>
+          <option>5to Secundaria</option><option>6to Secundaria</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Usuario <span class="hint">(minúsculas, sin espacios)</span></label>
+      <input id="regUser" type="text" placeholder="usuario123" autocomplete="username" />
+    </div>
+    <div class="form-group">
+      <label>Contraseña</label>
+      <input id="regPass" type="password" placeholder="••••••••" autocomplete="new-password" />
+    </div>
+    <div id="regError" class="msg-error hidden"></div>
+    <div id="regOk" class="msg-ok hidden"></div>
+    <button class="btn btn-primary full" onclick="Auth.register()">Registrarse</button>
+    <button class="btn btn-ghost full mt" onclick="App.showScreen('screenLanding')">← Volver</button>
+  </div>
+</div>
 
-<script type="module" src="app.js"></script>
+<!-- ===================== SCREEN: DASHBOARD ===================== -->
+<div id="screenDashboard" class="screen">
+  <header class="hud">
+    <div class="hud-left">
+      <span class="hud-logo">QL</span>
+      <div>
+        <div id="hudName" class="hud-name"></div>
+        <div id="hudCurso" class="hud-curso"></div>
+      </div>
+    </div>
+    <div class="hud-right">
+      <button class="btn-icon" title="Perfil" onclick="App.showProfile()">👤</button>
+      <button class="btn-icon" title="Historial" onclick="App.showHistory()">📜</button>
+      <button class="btn-icon" title="Ranking" onclick="App.showRanking()">🏆</button>
+      <button class="btn-icon" title="Cerrar sesión" onclick="Auth.logout()">🚪</button>
+    </div>
+  </header>
+
+  <div class="dash-body">
+    <!-- Stats bar -->
+    <div id="dashStats" class="stats-bar"></div>
+
+    <!-- Quizzes -->
+    <h3 class="section-title">🎯 Cuestionarios Disponibles</h3>
+    <div id="quizList" class="quiz-grid"></div>
+
+    <!-- Achievements -->
+    <h3 class="section-title">🏅 Logros</h3>
+    <div id="achievementsBar" class="achievements-bar"></div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: QUIZ PREVIEW ===================== -->
+<div id="modalQuiz" class="modal hidden">
+  <div class="modal-card">
+    <h2 id="mqTitle" class="modal-title"></h2>
+    <div id="mqInfo" class="modal-info"></div>
+    <div id="mqAttempts" class="modal-attempts"></div>
+    <div class="modal-actions">
+      <button id="mqStart" class="btn btn-primary" onclick="Quiz.start()">⚡ INICIAR</button>
+      <button class="btn btn-ghost" onclick="App.closeModal('modalQuiz')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: COUNTDOWN ===================== -->
+<div id="modalCountdown" class="modal hidden">
+  <div class="countdown-box">
+    <div id="cdText" class="cd-text">PREPÁRATE</div>
+    <div id="cdNum" class="cd-num"></div>
+  </div>
+</div>
+
+<!-- ===================== SCREEN: QUIZ ===================== -->
+<div id="screenQuiz" class="screen">
+  <div class="quiz-hud">
+    <div class="qhud-left">
+      <span id="qProgress" class="q-progress"></span>
+    </div>
+    <div class="qhud-center">
+      <span id="qTimer" class="q-timer">00:00:00</span>
+    </div>
+    <div class="qhud-right">
+      <button class="btn-sm btn-danger" onclick="Quiz.exitFullscreen()">⬛ Salir FS</button>
+    </div>
+  </div>
+
+  <div class="quiz-body">
+    <div id="questionCard" class="question-card">
+      <p id="questionText" class="q-text"></p>
+      <div id="optionsGrid" class="options-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SCREEN: RESULT ===================== -->
+<div id="screenResult" class="screen">
+  <div class="result-container">
+    <div id="resultConfetti"></div>
+    <div class="result-card">
+      <div id="resultIcon" class="result-icon"></div>
+      <h2 id="resultTitle" class="result-title"></h2>
+      <div id="resultStats" class="result-stats"></div>
+      <div class="result-actions">
+        <button class="btn btn-primary" onclick="Quiz.downloadPDF()">📄 Descargar PDF</button>
+        <button class="btn btn-secondary" onclick="App.showScreen('screenDashboard'); Dashboard.load()">🏠 Dashboard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: RANKING ===================== -->
+<div id="modalRanking" class="modal hidden">
+  <div class="modal-card wide">
+    <h2 class="modal-title">🏆 Ranking Global — Top 20</h2>
+    <div id="rankingTable" class="ranking-table"></div>
+    <button class="btn btn-ghost mt" onclick="App.closeModal('modalRanking')">Cerrar</button>
+  </div>
+</div>
+
+<!-- ===================== MODAL: PROFILE ===================== -->
+<div id="modalProfile" class="modal hidden">
+  <div class="modal-card">
+    <h2 class="modal-title">👤 Mi Perfil</h2>
+    <div id="profileContent"></div>
+    <button class="btn btn-ghost mt" onclick="App.closeModal('modalProfile')">Cerrar</button>
+  </div>
+</div>
+
+<!-- ===================== MODAL: HISTORY ===================== -->
+<div id="modalHistory" class="modal hidden">
+  <div class="modal-card wide">
+    <h2 class="modal-title">📜 Mi Historial</h2>
+    <div id="historyContent"></div>
+    <button class="btn btn-ghost mt" onclick="App.closeModal('modalHistory')">Cerrar</button>
+  </div>
+</div>
+
+<!-- ===================== MODAL: FS WARNING ===================== -->
+<div id="modalFSWarn" class="modal hidden">
+  <div class="modal-card">
+    <h2 class="modal-title">⚠️ ¡Saliste de pantalla completa!</h2>
+    <p class="warn-text">La evaluación requiere pantalla completa.<br>Vuelve a activarla para continuar.</p>
+    <button class="btn btn-primary" onclick="Quiz.reenterFullscreen()">↩ Volver a Pantalla Completa</button>
+    <button class="btn btn-danger mt" onclick="Quiz.forceEnd()">❌ Abandonar Evaluación</button>
+  </div>
+</div>
+
+<!-- ===================== ADMIN BUTTON (OPTIONAL) ===================== -->
+<button id="adminAccess" title="Admin" onclick="Admin.requestAccess()">⚙</button>
+
+<!-- ===================== MODAL: ADMIN ===================== -->
+<div id="modalAdmin" class="modal hidden">
+  <div class="modal-card wide">
+    <h2 class="modal-title">⚙ Panel Administrador</h2>
+    <div class="admin-tabs">
+      <button class="tab-btn active" onclick="Admin.tab('quizzes')">📋 Cuestionarios</button>
+      <button class="tab-btn" onclick="Admin.tab('create')">➕ Crear</button>
+      <button class="tab-btn" onclick="Admin.tab('import')">📂 Importar TXT</button>
+      <button class="tab-btn" onclick="Admin.tab('stats')">📊 Estadísticas</button>
+    </div>
+    <div id="adminContent" class="admin-content"></div>
+    <button class="btn btn-ghost mt" onclick="App.closeModal('modalAdmin')">Cerrar</button>
+  </div>
+</div>
+
+<!-- ===================== MODAL: QUIZ EDITOR ===================== -->
+<div id="modalEditor" class="modal hidden">
+  <div class="modal-card wide tall">
+    <h2 class="modal-title">✏️ Editor de Cuestionario</h2>
+    <div id="editorContent"></div>
+    <div class="editor-actions">
+      <button class="btn btn-primary" onclick="Admin.saveQuiz()">💾 Guardar</button>
+      <button class="btn btn-ghost" onclick="App.closeModal('modalEditor')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>
