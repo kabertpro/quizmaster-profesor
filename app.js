@@ -9,9 +9,9 @@
    ── CONFIGURACIÓN SUPABASE ──
    Reemplaza con tus credenciales reales de supabase.com
    ============================================================ */
-const SUPABASE_URL  = 'https://TU_PROYECTO.supabase.co';
-const SUPABASE_ANON = 'TU_ANON_KEY';
-const ADMIN_KEY     = 'QL2025admin';   // Clave maestra del administrador
+const SUPABASE_URL  = 'https://sdzovnnnzkctkjwnwzog.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNkem92bm5uemtjdGtqd253em9nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NjA0NDAsImV4cCI6MjA5NzAzNjQ0MH0.pKs5KJjqI431dbxolREcCNkgXAOQ5pSAgFiKaApSLTs';
+const ADMIN_KEY     = 'KABERT2026';   // Clave maestra del administrador
 
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
