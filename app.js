@@ -9,8 +9,8 @@
    ── CONFIGURACIÓN SUPABASE ──
    Reemplaza con tus credenciales reales de supabase.com
    ============================================================ */
-const SUPABASE_URL  = 'https://sdzovnnnzkctkjwnwzog.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNkem92bm5uemtjdGtqd253em9nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NjA0NDAsImV4cCI6MjA5NzAzNjQ0MH0.pKs5KJjqI431dbxolREcCNkgXAOQ5pSAgFiKaApSLTs';
+const SUPABASE_URL  = 'https://TU_PROYECTO.supabase.co';
+const SUPABASE_ANON = 'TU_ANON_KEY';
 const ADMIN_KEY     = 'QL2025admin';   // Clave maestra del administrador
 
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
@@ -527,16 +527,29 @@ const Quiz = {
 
     State.answers.push({ selected: idx, correct: q.correcta, ok: isCorrect });
 
+    // Es el último intento (intento 3) si ya tiene 2 intentos previos en Supabase
+    const intentoActual = State.record ? State.record.cantidad_intentos + 1 : 1;
+    const esUltimoIntento = intentoActual >= 3;
+
     // Visual feedback
     const btns = document.querySelectorAll('.option-btn');
     btns.forEach(b => b.disabled = true);
-    btns[idx].classList.add(isCorrect ? 'correct' : 'wrong');
-    if (!isCorrect) {
-      btns[q.correcta].classList.add('correct');
+
+    if (isCorrect) {
+      btns[idx].classList.add('correct');
+    } else {
+      btns[idx].classList.add('wrong');
+      // Solo revelar correcta en el último intento
+      if (esUltimoIntento) {
+        btns[q.correcta].classList.add('correct');
+      }
       if (navigator.vibrate) navigator.vibrate([80,30,80]);
     }
 
     isCorrect ? Audio.correct() : Audio.incorrect();
+
+    // Delay más largo en último intento para que el alumno pueda ver la correcta
+    const delay = (esUltimoIntento && !isCorrect) ? 1800 : 900;
 
     setTimeout(() => {
       State.currentQ++;
@@ -545,7 +558,7 @@ const Quiz = {
       } else {
         Quiz.finish();
       }
-    }, 900);
+    }, delay);
   },
 
   finish: async () => {
@@ -566,14 +579,28 @@ const Quiz = {
     const elapsed = State.elapsedSecs;
     const timeStr = Utils.fmtTime(elapsed);
 
+    // Bonificación por velocidad: máximo 5 puntos, proporcional al % de acierto
     let bonus = 0;
-    if (elapsed < idealS) {
-      bonus = Math.round(((idealS - elapsed) * 0.1) * (pct / 100));
+    if (elapsed < idealS && pct > 0) {
+      const rawBonus = Math.round(5 * (pct / 100));   // entre 0 y 5
+      bonus = Math.min(rawBonus, 5);
     }
-    const puntajeBase  = Math.round((correct / total) * maxPts);
-    const puntajeFinal = puntajeBase + bonus;
+    const puntajeBase = Math.round((correct / total) * maxPts);
+    let puntajeFinal  = puntajeBase + bonus;
+    // Si supera el puntaje máximo configurado, recalcular al máximo
+    if (puntajeFinal > maxPts) {
+      bonus = maxPts - puntajeBase;
+      puntajeFinal = maxPts;
+    }
 
-    State.result = { total, correct, pct, puntajeFinal, puntajeBase, bonus, timeStr, elapsed };
+    State.result = {
+      total, correct, pct, puntajeFinal, puntajeBase, bonus, timeStr, elapsed,
+      // snapshot completo para PDF desde perfil
+      answers: [...State.answers],
+      preguntas: State.quiz.preguntas,
+      quizNombre: State.quiz.nombre,
+      fecha: Utils.today(),
+    };
 
     await Quiz.saveRecord(puntajeFinal, pct, timeStr);
     Quiz.showResult();
@@ -589,8 +616,18 @@ const Quiz = {
         .select('*').eq('usuario', u.usuario).eq('cuestionario_id', q.id).single();
 
       const tries = existing ? existing.cantidad_intentos + 1 : 1;
-      const isBetter = !existing || puntajeFinal > existing.mejor_puntaje;
+      const isBetter  = !existing || puntajeFinal > existing.mejor_puntaje;
       const betterTime = !existing || State.elapsedSecs < Utils.secsFromStr(existing.mejor_tiempo || '99:99:99');
+
+      // Detalle de este intento para poder generar PDF desde historial
+      const detalleIntento = {
+        puntaje:   puntajeFinal,
+        porcentaje: pct,
+        tiempo:    timeStr,
+        fecha:     Utils.today(),
+        answers:   State.answers,        // [{selected, correct, ok}]
+        preguntas: q.preguntas,          // snapshot completo de las preguntas
+      };
 
       if (!existing) {
         await db.from('records').insert({
@@ -610,6 +647,9 @@ const Quiz = {
           tiempo_empleado: timeStr,
           porcentaje: pct,
           puntaje_final: puntajeFinal,
+          detalle_intento1: detalleIntento,
+          detalle_intento2: null,
+          detalle_intento3: null,
         });
       } else {
         const upd = {
@@ -620,10 +660,10 @@ const Quiz = {
           cantidad_intentos: tries,
           intento_nro: tries,
         };
-        if (tries === 2) upd.intento2 = puntajeFinal;
-        if (tries === 3) upd.intento3 = puntajeFinal;
-        if (isBetter)   upd.mejor_puntaje = puntajeFinal;
-        if (betterTime) upd.mejor_tiempo  = timeStr;
+        if (tries === 2) { upd.intento2 = puntajeFinal; upd.detalle_intento2 = detalleIntento; }
+        if (tries === 3) { upd.intento3 = puntajeFinal; upd.detalle_intento3 = detalleIntento; }
+        if (isBetter)    upd.mejor_puntaje = puntajeFinal;
+        if (betterTime)  upd.mejor_tiempo  = timeStr;
 
         await db.from('records')
           .update(upd)
@@ -724,87 +764,102 @@ const Quiz = {
     }
   },
 
-  downloadPDF: () => {
+  // Puede llamarse desde la pantalla de resultado (sin args) o desde historial (pasando datos)
+  downloadPDF: (datosExternos = null) => {
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const u = State.user;
-    const q = State.quiz;
-    const r = State.result;
-    const W = 210, cx = W/2;
 
-    // Fondo oscuro
+    // Si viene desde historial, usamos los datos guardados; si no, usamos State.result
+    const datos = datosExternos || State.result;
+    const quizNombre  = datos.quizNombre  || (State.quiz ? State.quiz.nombre : '—');
+    const puntajeFinal= datos.puntajeFinal || 0;
+    const puntajeBase = datos.puntajeBase  || 0;
+    const bonus       = datos.bonus        || 0;
+    const pct         = datos.pct          || 0;
+    const correct     = datos.correct      || 0;
+    const total       = datos.total        || 0;
+    const timeStr     = datos.timeStr      || '—';
+    const intento     = datos.intento      || '—';
+    const fecha       = datos.fecha        || Utils.today();
+    const answers     = datos.answers      || [];
+    const preguntas   = datos.preguntas    || [];
+
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const W = 210, cx = W / 2;
+
+    /* ---- Función auxiliar: encabezado de página ---- */
+    const pageHeader = (pageNum) => {
+      doc.setFillColor(8, 17, 31);
+      doc.rect(0, 0, W, 297, 'F');
+      doc.setFillColor(0, 200, 255);
+      doc.rect(0, 0, W, 18, 'F');
+      doc.setFillColor(138, 46, 255);
+      doc.rect(0, 12, W, 6, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(255,255,255);
+      doc.text('QUIZ LEGENDS', cx, 10, {align:'center'});
+      doc.setFontSize(7); doc.setTextColor(220,220,255);
+      doc.text(`Kabert Studio · LMKE  |  ${quizNombre}  |  Pág. ${pageNum}`, cx, 16, {align:'center'});
+    };
+
+    /* ════════════════════════════ PÁGINA 1: RESUMEN ════════════════════════════ */
     doc.setFillColor(8, 17, 31);
-    doc.rect(0, 0, 210, 297, 'F');
+    doc.rect(0, 0, W, 297, 'F');
 
-    // Header gradient strip
+    // Header grande
     doc.setFillColor(0, 200, 255);
-    doc.rect(0, 0, 210, 32, 'F');
+    doc.rect(0, 0, W, 32, 'F');
     doc.setFillColor(138, 46, 255);
-    doc.rect(0, 20, 210, 12, 'F');
-
-    // Title
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(28); doc.setTextColor(255,255,255);
-    doc.text('QUIZ LEGENDS', cx, 14, { align:'center' });
+    doc.rect(0, 20, W, 12, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(28); doc.setTextColor(255,255,255);
+    doc.text('QUIZ LEGENDS', cx, 14, {align:'center'});
     doc.setFontSize(9); doc.setTextColor(220,220,255);
-    doc.text('Kabert Studio · LMKE', cx, 26, { align:'center' });
+    doc.text('Kabert Studio · LMKE', cx, 26, {align:'center'});
 
-    // Badge icon
-    const icon = r.pct >= 90 ? '★ LEYENDA' : r.pct >= 70 ? '◆ EXCELENTE' : r.pct >= 50 ? '● APROBADO' : '○ INTENTO';
-    doc.setFontSize(13); doc.setTextColor(255, 215, 0);
-    doc.text(icon, cx, 46, { align:'center' });
+    // Badge resultado
+    const badge = pct >= 90 ? '★ LEYENDA' : pct >= 70 ? '◆ EXCELENTE' : pct >= 50 ? '● APROBADO' : '○ INTENTO';
+    doc.setFontSize(13); doc.setTextColor(255,215,0);
+    doc.text(badge, cx, 46, {align:'center'});
 
-    // Student card
+    // Card estudiante
     doc.setFillColor(16, 29, 51);
-    doc.roundedRect(15, 52, 180, 70, 4, 4, 'F');
+    doc.roundedRect(15, 52, 180, 72, 4, 4, 'F');
     doc.setDrawColor(0, 200, 255); doc.setLineWidth(0.4);
-    doc.roundedRect(15, 52, 180, 70, 4, 4, 'S');
+    doc.roundedRect(15, 52, 180, 72, 4, 4, 'S');
 
     const field = (label, val, y) => {
-      doc.setFontSize(8); doc.setTextColor(120, 145, 180); doc.setFont('helvetica','normal');
+      doc.setFontSize(7.5); doc.setTextColor(120,145,180); doc.setFont('helvetica','normal');
       doc.text(label.toUpperCase(), 25, y);
       doc.setFontSize(11); doc.setTextColor(255,255,255); doc.setFont('helvetica','bold');
       doc.text(String(val), 25, y+6);
     };
+    field('Estudiante',   u.nombre_completo, 62);
+    field('Curso',        u.curso,           78);
+    field('Cuestionario', quizNombre,        94);
+    field('Fecha',        fecha,             110);
 
-    field('Estudiante',  u.nombre_completo, 62);
-    field('Curso',       u.curso,           78);
-    field('Cuestionario',q.nombre,          94);
-    field('Fecha',       Utils.today(),     110);
+    // 3 paneles de puntaje
+    const panel3 = (x, w, titulo, valor, color) => {
+      doc.setFillColor(16,29,51);
+      doc.roundedRect(x, 132, w, 38, 4, 4, 'F');
+      doc.setDrawColor(...color); doc.setLineWidth(0.5);
+      doc.roundedRect(x, 132, w, 38, 4, 4, 'S');
+      doc.setFontSize(6.5); doc.setTextColor(120,145,180); doc.setFont('helvetica','normal');
+      doc.text(titulo, x + w/2, 141, {align:'center'});
+      doc.setFontSize(22); doc.setTextColor(...color); doc.setFont('helvetica','bold');
+      doc.text(String(valor), x + w/2, 158, {align:'center'});
+    };
+    panel3(15,  56, 'PUNTAJE FINAL', puntajeFinal, [255,215,0]);
+    panel3(77,  56, 'PORCENTAJE',    pct+'%',       [0,200,255]);
+    panel3(139, 56, 'TIEMPO',        timeStr,        [0,255,153]);
 
-    // Score panel
-    doc.setFillColor(16, 29, 51);
-    doc.roundedRect(15, 130, 55, 40, 4, 4, 'F');
-    doc.setDrawColor(255,215,0); doc.roundedRect(15,130,55,40,4,4,'S');
-    doc.setFontSize(7); doc.setTextColor(120,145,180); doc.setFont('helvetica','normal');
-    doc.text('PUNTAJE FINAL', 42, 140, {align:'center'});
-    doc.setFontSize(26); doc.setTextColor(255,215,0); doc.setFont('helvetica','bold');
-    doc.text(String(r.puntajeFinal), 42, 158, {align:'center'});
-
-    doc.setFillColor(16,29,51);
-    doc.roundedRect(77,130,55,40,4,4,'F');
-    doc.setDrawColor(0,200,255); doc.roundedRect(77,130,55,40,4,4,'S');
-    doc.setFontSize(7); doc.setTextColor(120,145,180); doc.setFont('helvetica','normal');
-    doc.text('PORCENTAJE', 104, 140, {align:'center'});
-    doc.setFontSize(26); doc.setTextColor(0,200,255); doc.setFont('helvetica','bold');
-    doc.text(r.pct+'%', 104, 158, {align:'center'});
-
-    doc.setFillColor(16,29,51);
-    doc.roundedRect(139,130,56,40,4,4,'F');
-    doc.setDrawColor(0,255,153); doc.roundedRect(139,130,56,40,4,4,'S');
-    doc.setFontSize(7); doc.setTextColor(120,145,180); doc.setFont('helvetica','normal');
-    doc.text('TIEMPO', 167, 140, {align:'center'});
-    doc.setFontSize(14); doc.setTextColor(0,255,153); doc.setFont('helvetica','bold');
-    doc.text(r.timeStr, 167, 158, {align:'center'});
-
-    // Detail rows
+    // Filas de detalle
     const rows = [
-      ['Respuestas Correctas', `${r.correct} / ${r.total}`],
-      ['Puntaje Base',         String(r.puntajeBase)],
-      ['Bonificación Velocidad', `+${r.bonus}`],
-      ['Intento',              `${r.intento} de 3`],
+      ['Respuestas Correctas',   `${correct} / ${total}`],
+      ['Puntaje Base',           String(puntajeBase)],
+      ['Bonificación Velocidad', `+${bonus}`],
+      ['Intento',                `${intento} de 3`],
     ];
-    let ry = 183;
+    let ry = 184;
     rows.forEach(([lbl, val]) => {
       doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(120,145,180);
       doc.text(lbl, 25, ry);
@@ -812,16 +867,93 @@ const Quiz = {
       doc.text(val, 185, ry, {align:'right'});
       doc.setDrawColor(30,50,80); doc.setLineWidth(0.2);
       doc.line(25, ry+3, 185, ry+3);
-      ry += 12;
+      ry += 11;
     });
 
-    // Footer
+    // Nota al pie pág 1
+    doc.setFontSize(7.5); doc.setFont('helvetica','italic'); doc.setTextColor(80,100,130);
+    doc.text('Ver páginas siguientes para el detalle pregunta por pregunta.', cx, ry + 8, {align:'center'});
+
+    // Footer pág 1
     doc.setFillColor(0,200,255);
-    doc.rect(0,282,210,15,'F');
+    doc.rect(0, 282, W, 15, 'F');
     doc.setFontSize(8); doc.setTextColor(8,17,31); doc.setFont('helvetica','bold');
     doc.text('"Conquista el conocimiento. Rompe récords. Conviértate en leyenda."', cx, 291, {align:'center'});
 
-    const fname = `QuizLegends_${u.usuario}_${q.nombre.replace(/\s+/g,'_')}.pdf`;
+    /* ════════════════════════════ PÁGINA 2+: DETALLE PREGUNTAS ════════════════════════════ */
+    if (preguntas.length > 0) {
+      const labels = ['A','B','C','D'];
+      let pageNum = 2;
+      let curY = 28;
+
+      doc.addPage();
+      pageHeader(pageNum);
+
+      preguntas.forEach((preg, qi) => {
+        const ans      = answers[qi];
+        const selected = ans ? ans.selected : -1;
+        const isOk     = ans ? ans.ok : false;
+
+        // Calcular altura necesaria para esta pregunta
+        const pregLines = doc.splitTextToSize(`${qi+1}. ${preg.pregunta}`, 170);
+        const blockH    = 8 + pregLines.length * 5.5 + preg.opciones.length * 8 + 4;
+
+        if (curY + blockH > 270) {
+          // Footer de página
+          doc.setFillColor(0,200,255); doc.rect(0,282,W,15,'F');
+          doc.setFontSize(7); doc.setTextColor(8,17,31); doc.setFont('helvetica','bold');
+          doc.text('Quiz Legends · Kabert Studio · LMKE', cx, 291, {align:'center'});
+          pageNum++;
+          doc.addPage();
+          pageHeader(pageNum);
+          curY = 28;
+        }
+
+        // Marcador de resultado de la pregunta
+        const okColor   = isOk ? [0,255,153] : [255,77,77];
+        const okLabel   = isOk ? '✔ CORRECTA' : '✘ INCORRECTA';
+        doc.setFillColor(...okColor.map(c => Math.floor(c * 0.15)));
+        doc.roundedRect(14, curY - 1, 182, blockH, 3, 3, 'F');
+        doc.setDrawColor(...okColor); doc.setLineWidth(0.3);
+        doc.roundedRect(14, curY - 1, 182, blockH, 3, 3, 'S');
+
+        // Número + estado
+        doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(...okColor);
+        doc.text(okLabel, 185, curY + 4, {align:'right'});
+
+        // Texto pregunta
+        doc.setFontSize(9.5); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+        doc.text(pregLines, 20, curY + 4);
+        curY += pregLines.length * 5.5 + 6;
+
+        // Opciones
+        preg.opciones.forEach((op, oi) => {
+          const isSelected = oi === selected;
+          const isCorrect  = oi === preg.correcta;
+
+          let txtColor = [100, 120, 150];
+          let prefix   = `${labels[oi]})`;
+
+          if (isCorrect)  { txtColor = [0, 255, 153]; prefix = `${labels[oi]}) ✔`; }
+          if (isSelected && !isCorrect) { txtColor = [255, 77, 77];  prefix = `${labels[oi]}) ✘`; }
+
+          doc.setFontSize(8.5); doc.setFont('helvetica', isSelected || isCorrect ? 'bold':'normal');
+          doc.setTextColor(...txtColor);
+          const opLines = doc.splitTextToSize(`${prefix} ${op}`, 165);
+          doc.text(opLines, 24, curY);
+          curY += opLines.length * 5 + 2.5;
+        });
+
+        curY += 5; // espacio entre preguntas
+      });
+
+      // Footer última página
+      doc.setFillColor(0,200,255); doc.rect(0,282,W,15,'F');
+      doc.setFontSize(7); doc.setTextColor(8,17,31); doc.setFont('helvetica','bold');
+      doc.text('Quiz Legends · Kabert Studio · LMKE', cx, 291, {align:'center'});
+    }
+
+    const fname = `QuizLegends_${u.usuario}_${quizNombre.replace(/\s+/g,'_')}_intento${intento}.pdf`;
     doc.save(fname);
     Audio.click();
   },
@@ -890,36 +1022,98 @@ const Profile = {
   load: async () => {
     const el = document.getElementById('profileContent');
     if (!State.user) return;
+    el.innerHTML = '<p style="color:var(--muted);font-size:.9rem">Cargando...</p>';
     try {
       const { data } = await db.from('records')
-        .select('mejor_puntaje, mejor_tiempo, puntaje_final, porcentaje, cuestionario_nombre')
-        .eq('usuario', State.user.usuario);
+        .select('*')
+        .eq('usuario', State.user.usuario)
+        .order('puntaje_final', { ascending: false });
 
       const records = data || [];
-      const totalQ  = records.length;
+      const totalQ   = records.length;
       const totalPts = records.reduce((s,r)=>s+(r.puntaje_final||0),0);
-      const bestScore = records.reduce((m,r)=>Math.max(m,r.mejor_puntaje||0),0);
-      const bestTime  = records.map(r=>r.mejor_tiempo).filter(Boolean)
+      const bestScore= records.reduce((m,r)=>Math.max(m,r.mejor_puntaje||0),0);
+      const bestTime = records.map(r=>r.mejor_tiempo).filter(Boolean)
         .sort((a,b)=>Utils.secsFromStr(a)-Utils.secsFromStr(b))[0]||'--';
       const avg = totalQ ? Math.round(records.reduce((s,r)=>s+(r.porcentaje||0),0)/totalQ) : 0;
 
-      const rows = [
-        ['Nombre',          State.user.nombre_completo],
-        ['Curso',           State.user.curso],
-        ['Usuario',         State.user.usuario],
-        ['Cuestionarios',   totalQ],
-        ['Total Puntos',    totalPts],
-        ['Mejor Puntaje',   bestScore],
-        ['Mejor Tiempo',    bestTime],
-        ['Promedio',        avg+'%'],
+      const statsRows = [
+        ['Nombre',        State.user.nombre_completo],
+        ['Curso',         State.user.curso],
+        ['Usuario',       State.user.usuario],
+        ['Cuestionarios', totalQ],
+        ['Total Puntos',  totalPts],
+        ['Mejor Puntaje', bestScore],
+        ['Mejor Tiempo',  bestTime],
+        ['Promedio',      avg+'%'],
       ];
 
-      el.innerHTML = rows.map(([l,v])=>`
-        <div class="p-row"><span class="p-lbl">${l}</span><span class="p-val">${v}</span></div>
-      `).join('');
+      // Generar HTML de intentos con botones PDF
+      const histHTML = records.length ? records.map(r => {
+        // Armar botones por cada intento con detalle disponible
+        const intentosBtns = [1,2,3].map(n => {
+          const det = r[`detalle_intento${n}`];
+          if (!det) return '';
+          const d = {
+            quizNombre:   r.cuestionario_nombre,
+            puntajeFinal: det.puntaje,
+            puntajeBase:  det.puntaje,   // aproximado si no se guardó separado
+            bonus:        0,
+            pct:          det.porcentaje,
+            correct:      Math.round((det.porcentaje/100)*(det.preguntas||[]).length),
+            total:        (det.preguntas||[]).length,
+            timeStr:      det.tiempo,
+            intento:      n,
+            fecha:        det.fecha || '--',
+            answers:      det.answers   || [],
+            preguntas:    det.preguntas || [],
+          };
+          // Recalcular correct real desde answers
+          if (d.answers.length) d.correct = d.answers.filter(a=>a.ok).length;
+
+          return `<button class="btn-xs edit" style="background:var(--purple)"
+            onclick='Profile.descargarPDF(${JSON.stringify(d).replace(/'/g,"&#39;")})'>
+            📄 Intento ${n}
+          </button>`;
+        }).join('');
+
+        return `<div class="admin-quiz-row" style="flex-direction:column;align-items:flex-start;gap:.5rem">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
+            <div>
+              <div class="aqr-name">${r.cuestionario_nombre}</div>
+              <div class="aqr-sub">
+                Mejor: <b style="color:var(--gold)">${r.mejor_puntaje} pts</b> ·
+                ${r.porcentaje}% · ${r.mejor_tiempo||'--'} · ${r.cantidad_intentos} intento(s)
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+            ${intentosBtns || '<span style="color:var(--muted);font-size:.78rem">PDFs no disponibles (intentos anteriores a la actualización)</span>'}
+          </div>
+        </div>`;
+      }).join('') : '<p style="color:var(--muted);font-size:.88rem">Aún no has completado ningún cuestionario.</p>';
+
+      el.innerHTML = `
+        <div style="margin-bottom:1.25rem">
+          ${statsRows.map(([l,v])=>`
+            <div class="p-row"><span class="p-lbl">${l}</span><span class="p-val">${v}</span></div>
+          `).join('')}
+        </div>
+        <h3 style="font-family:var(--font-hud);font-size:.85rem;color:var(--purple);
+          text-transform:uppercase;letter-spacing:.08em;border-left:3px solid var(--purple);
+          padding-left:.6rem;margin-bottom:.75rem">
+          📜 Mis Cuestionarios y PDFs
+        </h3>
+        ${histHTML}
+      `;
     } catch(e) {
       el.innerHTML = '<p style="color:var(--muted)">Error al cargar perfil.</p>';
     }
+  },
+
+  // Llamado desde botón inline en el HTML generado
+  descargarPDF: (datos) => {
+    Quiz.downloadPDF(datos);
   },
 };
 

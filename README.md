@@ -61,7 +61,11 @@ CREATE TABLE IF NOT EXISTS records (
   ultimo_intento      INTEGER DEFAULT 0,
   tiempo_empleado     TEXT,
   porcentaje          INTEGER DEFAULT 0,
-  puntaje_final       INTEGER DEFAULT 0
+  puntaje_final       INTEGER DEFAULT 0,
+  -- Detalle de respuestas por intento (para generar PDF desde el perfil)
+  detalle_intento1    JSONB,
+  detalle_intento2    JSONB,
+  detalle_intento3    JSONB
 );
 
 -- ============================================================
